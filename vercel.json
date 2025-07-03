@@ -6,7 +6,19 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "api/main.py" },
-    { "src": "/(.*)", "dest": "/index.html" }
+    { "src": "/assets/(.*)", "dest": "/dist/assets/$1" },
+    { "src": "/(.*)", "dest": "/dist/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript"
+        }
+      ]
+    }
   ],
   "env": {
     "DB_TYPE": "postgres"
