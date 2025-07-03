@@ -2,6 +2,7 @@ import React from "react";
 import { RouterProvider, createBrowserRouter } from "react-router";
 import Navigation from "./components/Navigation";
 import Home from "./pages/Home";
+import './index.css';
 
 const Products = React.lazy(() => import("./pages/Products"));
 const Transactions = React.lazy(() => import("./pages/Transactions"));
