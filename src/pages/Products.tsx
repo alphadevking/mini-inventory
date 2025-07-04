@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { exportToExcel, exportToCSV, exportToPDF } from "@/lib/exportUtils";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Download } from "lucide-react";
 
 interface Product {
   id: string;
@@ -138,17 +140,26 @@ export default function Products() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Products</h1>
         <div className="flex gap-2">
-          <Button onClick={() => exportToExcel(products, "products")}>Export Excel</Button>
-          <Button onClick={() => exportToCSV(products, "products")}>Export CSV</Button>
-          <Button onClick={() => exportToPDF(products, [
-            { header: "Phone Model", dataKey: "phone_model" },
-            { header: "Part Type", dataKey: "part_type" },
-            { header: "Variant", dataKey: "variant" },
-            { header: "Purchase Cost", dataKey: "last_purchase_cost" },
-            { header: "Sell Price", dataKey: "suggested_sell_price" },
-            { header: "Stock", dataKey: "current_stock" },
-            { header: "Status", dataKey: "status" },
-          ], "products")}>Export PDF</Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="flex items-center gap-2">
+                <Download className="w-4 h-4" /> Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportToExcel(products, "products")}>Export Excel</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportToCSV(products, "products")}>Export CSV</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportToPDF(products, [
+                { header: "Phone Model", dataKey: "phone_model" },
+                { header: "Part Type", dataKey: "part_type" },
+                { header: "Variant", dataKey: "variant" },
+                { header: "Purchase Cost", dataKey: "last_purchase_cost" },
+                { header: "Sell Price", dataKey: "suggested_sell_price" },
+                { header: "Stock", dataKey: "current_stock" },
+                { header: "Status", dataKey: "status" },
+              ], "products")}>Export PDF</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
               <Button>Add Product</Button>

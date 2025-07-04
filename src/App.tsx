@@ -2,6 +2,8 @@ import React from "react";
 import { RouterProvider, createBrowserRouter } from "react-router";
 import Navigation from "./components/Navigation";
 import Home from "./pages/Home";
+import NotFound from "./pages/NotFound";
+
 import './index.css';
 
 const Products = React.lazy(() => import("./pages/Products"));
@@ -29,6 +31,10 @@ const router = createBrowserRouter([
     {
         path: "/transactions",
         element: <Layout><Transactions /></Layout>,
+    },
+    {
+        path: "*",
+        element: <NotFound />,
     },
 ], {
     future: {}

@@ -19,7 +19,7 @@ app = FastAPI(
     title="Mini Inventory API",
     description="API for managing phone repair parts inventory, expenses, and profits.",
     version="1.0.0",
-    root_path="/api"
+    # root_path="/api"
 )
 
 # CORS configuration
