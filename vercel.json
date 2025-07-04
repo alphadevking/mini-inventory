@@ -9,17 +9,6 @@
     { "source": "/assets/(.*)", "destination": "/dist/assets/$1" },
     { "source": "/(.*)", "destination": "/dist/index.html" }
   ],
-  "headers": [
-    {
-      "source": "/assets/(.*)",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/javascript"
-        }
-      ]
-    }
-  ],
   "env": {
     "DB_TYPE": "postgres"
   }
