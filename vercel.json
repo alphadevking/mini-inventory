@@ -1,13 +1,31 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/main.py", "use": "@vercel/python" },
-    { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "dist" } }
+    {
+      "src": "api/main.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/main.py" },
-    { "source": "/assets/(.*)", "destination": "/dist/assets/$1" },
-    { "source": "/(.*)", "destination": "/dist/index.html" }
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/main.py"
+    },
+    {
+      "source": "/assets/(.*)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ],
   "env": {
     "DB_TYPE": "postgres"
