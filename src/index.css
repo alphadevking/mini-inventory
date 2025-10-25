@@ -218,3 +218,7 @@
     @apply bg-background text-foreground;
   }
 }
+
+button {
+  @apply cursor-pointer active:scale-95 transition-all duration-100;
+}

@@ -1,27 +1,21 @@
 # database.py
 # Database connection logic (to be implemented)
 
-import os
-from sqlmodel import SQLModel, Session
-from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlmodel import SQLModel, Session, create_engine
+from .config import get_database_url
 
-# Load environment variables from .env
-load_dotenv()
+# Create database engine
+database_url = get_database_url()
+engine = create_engine(database_url, echo=False)
 
-def get_database_url():
-    # Always use DATABASE_URL if set
-    url = os.getenv("DATABASE_URL")
-    if url:
-        return url
-    # Fallback to SQLite for local development
-    return "sqlite:///./test.db"
+def create_db_and_tables():
+    """Create database tables"""
+    SQLModel.metadata.create_all(engine)
 
-# Use the unified function to get the database URL
-DATABASE_URL = get_database_url()
-
-# Create the SQLAlchemy engine
-engine = create_engine(DATABASE_URL, echo=False)
+def get_session():
+    """Get database session"""
+    with Session(engine) as session:
+        yield session
 
 # Test the connection
 try:
@@ -29,16 +23,3 @@ try:
         print("Connection successful!")
 except Exception as e:
     print(f"Failed to connect: {e}")
-
-def get_session():
-    """
-    Dependency for FastAPI to get a database session.
-    Usage: Depends(get_session)
-    """
-    with Session(engine) as session:
-        yield session
-
-# Best Practices:
-# - Use the exact connection string format from Supabase dashboard for PostgreSQL.
-# - For local development, you can omit the individual variables to use SQLite.
-# - Never commit your real .env file or credentials.

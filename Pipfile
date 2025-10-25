@@ -10,6 +10,8 @@ psycopg2-binary = "*"
 python-dotenv = "*"
 uvicorn = "*"
 alembic = "*"
+pydantic-settings = "*"
+requests = "*"
 
 [dev-packages]
 

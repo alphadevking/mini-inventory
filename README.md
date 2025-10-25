@@ -27,6 +27,21 @@ git clone <repository-url>
 cd mini-inventory
 ```
 
+### 📚 Documentation
+For detailed setup and usage instructions, see the [docs/](./docs/) folder:
+- **[Server Startup Guide](./docs/STARTUP.md)** - Complete guide for running the development servers
+- **[Neon Database Setup](./docs/NEON_SETUP.md)** - Production database configuration
+- **[Project Plan](./docs/PROJECT_PLAN.md)** - Development roadmap and planning
+
+### 🚀 Quick Start Servers
+```bash
+# Cross-platform (recommended)
+pnpm start
+
+# Windows PowerShell
+.\start-servers.ps1
+```
+
 ### 2. Install dependencies
 ```bash
 # Install Python dependencies
@@ -65,11 +80,11 @@ pipenv run alembic upgrade head
 pipenv run uvicorn api.main:app --reload --port 9000
 
 # Terminal 2: Start frontend
-pnpm dev
+pnpm dev --port 9001
 ```
 
 ### 6. Open your browser
-Navigate to `http://localhost:5173`
+Navigate to `http://localhost:9001`
 
 ## Environment Variables
 
@@ -85,6 +100,9 @@ DATABASE_URL=postgresql+psycopg2://[user]:[password]@[endpoint]/[dbname]?sslmode
 # For local development (SQLite)
 # DB_TYPE=sqlite
 # DATABASE_URL=sqlite:///./test.db
+
+# In production (Docker/cloud):
+# ALLOWED_ORIGINS="https://yourdomain.com,https://api.yourdomain.com"
 ```
 
 ## Database Setup
@@ -115,21 +133,53 @@ pipenv run alembic downgrade -1
 ## API Endpoints
 
 ### Products
-- `GET /api/products/` - List all products
+- `GET /api/products/` - List all products (with optional search, pagination)
 - `POST /api/products/` - Create new product
-- `GET /api/products/{id}` - Get product by ID
-- `PUT /api/products/{id}` - Update product
-- `DELETE /api/products/{id}` - Delete product
+- `GET /api/products/id/{id}` - Get product by ID
+- `PUT /api/products/id/{id}` - Update product
+- `DELETE /api/products/id/{id}` - Delete product
+- `GET /api/products/search` - Search products
 - `GET /api/products/low-stock/` - Get low stock products
 
 ### Transactions
-- `GET /api/transactions/` - List all transactions
+- `GET /api/transactions/` - List all transactions (with optional filtering)
 - `POST /api/transactions/` - Create new transaction
 - `GET /api/transactions/{id}` - Get transaction by ID
+- `PUT /api/transactions/{id}` - Update transaction
 - `DELETE /api/transactions/{id}` - Delete transaction
 
-### Financial Summary
-- `GET /api/summary/` - Get financial summary
+### Analytics
+- `GET /api/analytics/dashboard/stats` - Get dashboard statistics
+- `GET /api/analytics/financial-summary` - Get financial summary
+- `GET /api/analytics/sales/trends` - Get sales trends
+- `GET /api/analytics/inventory/analysis` - Get inventory analysis
+- `GET /api/analytics/products/top-selling` - Get top selling products
+- `GET /api/analytics/categories/performance` - Get category performance
+- `GET /api/analytics/revenue/breakdown` - Get revenue breakdown
+- `GET /api/analytics/expenses/breakdown` - Get expenses breakdown
+- `GET /api/analytics/profitability/analysis` - Get profitability analysis
+
+### Categories
+- `GET /api/categories/` - List all categories
+- `POST /api/categories/` - Create new category
+- `GET /api/categories/{id}` - Get category by ID
+- `PUT /api/categories/{id}` - Update category
+- `DELETE /api/categories/{id}` - Delete category
+
+### Expenses
+- `GET /api/expenses/` - List all expenses
+- `POST /api/expenses/` - Create new expense
+
+### Repairs
+- `GET /api/repairs/` - List all repairs
+- `POST /api/repairs/` - Create new repair
+
+### Returns
+- `GET /api/returns/` - List all returns
+- `POST /api/returns/` - Create new return
+
+### ERP
+- `GET /api/erp/dashboard` - Get ERP dashboard data
 
 ## Deployment
 
