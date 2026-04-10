@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { spawn } from 'child_process';
-import path from 'path';
 import fs from 'fs';
 
 console.log('========================================');
@@ -94,7 +93,7 @@ async function main() {
     const backendProcess = startServer(
       'Backend Server',
       'pipenv',
-      ['run', 'uvicorn', 'api.main:app', '--reload', '--port', '9000']
+      ['run', 'uvicorn', 'api.main:app', '--reload', '--reload-dir', 'api', '--port', '9000']
     );
 
     // Wait a moment for backend to start
@@ -130,7 +129,7 @@ async function main() {
     });
 
     // Keep the script running
-    await new Promise(() => {});
+    await new Promise(() => { });
 
   } catch (error) {
     console.error('❌ Error:', error.message);

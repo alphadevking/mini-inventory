@@ -4,9 +4,22 @@ from typing import List, Optional
 from uuid import UUID
 
 from ..database import get_session
-from ..models import Product, ProductCreate, ProductUpdate, ProductCategory, ProductSubcategory, ProductReadWithStock
+from ..models import (
+    Product,
+    ProductCreate,
+    ProductUpdate,
+    ProductCategory,
+    ProductSubcategory,
+    ProductReadWithStock,
+    UserRead,
+)
 
-router = APIRouter(prefix="/products", tags=["products"])
+from ..dependencies import get_current_user, require_manager
+
+router = APIRouter(
+    prefix="/products", tags=["products"], dependencies=[Depends(get_current_user)]
+)
+
 
 @router.get("/test")
 def test_products_endpoint(session: Session = Depends(get_session)):
@@ -14,16 +27,17 @@ def test_products_endpoint(session: Session = Depends(get_session)):
     try:
         # Simple count query
         count = session.exec(select(Product)).all()
-        return {"message": "Database connection successful", "product_count": len(count)}
+        return {
+            "message": "Database connection successful",
+            "product_count": len(count),
+        }
     except Exception as e:
         return {"error": str(e), "message": "Database connection failed"}
 
+
 @router.get("/search", response_model=List[ProductReadWithStock])
 def search_products(
-    q: str,
-    skip: int = 0,
-    limit: int = 50,
-    session: Session = Depends(get_session)
+    q: str, skip: int = 0, limit: int = 50, session: Session = Depends(get_session)
 ):
     """Search products with a query string - optimized for search"""
     from sqlalchemy import or_
@@ -36,7 +50,7 @@ def search_products(
         Product.sku.ilike(f"%{q}%"),  # type: ignore - SQLAlchemy dynamic attribute
         Product.supplier.ilike(f"%{q}%"),  # type: ignore - SQLAlchemy dynamic attribute
         Product.description.ilike(f"%{q}%"),  # type: ignore - SQLAlchemy dynamic attribute
-        Product.barcode.ilike(f"%{q}%")  # type: ignore - SQLAlchemy dynamic attribute
+        Product.barcode.ilike(f"%{q}%"),  # type: ignore - SQLAlchemy dynamic attribute
     )
 
     query = select(Product).where(Product.is_active).where(search_filter)
@@ -86,24 +100,30 @@ def search_products(
             attributes=product.attributes or {},
             created_at=product.created_at,
             updated_at=product.updated_at,
-            category=categories.get(str(product.category_id)) if product.category_id else None,
-            subcategory=subcategories.get(str(product.subcategory_id)) if product.subcategory_id else None
+            category=(
+                categories.get(str(product.category_id))
+                if product.category_id
+                else None
+            ),
+            subcategory=(
+                subcategories.get(str(product.subcategory_id))
+                if product.subcategory_id
+                else None
+            ),
         )
         result.append(product_data)
 
     return result
 
+
 @router.get("/low-stock", response_model=List[ProductReadWithStock])
 def get_low_stock_products(
-    skip: int = 0,
-    limit: int = 100,
-    session: Session = Depends(get_session)
+    skip: int = 0, limit: int = 100, session: Session = Depends(get_session)
 ):
     """Get products that are at or below their low stock threshold"""
     # Get products that are at or below low stock threshold
     query = select(Product).where(
-        Product.is_active,
-        Product.current_stock <= Product.low_stock_threshold
+        Product.is_active, Product.current_stock <= Product.low_stock_threshold
     )
 
     products = session.exec(query.offset(skip).limit(limit)).all()
@@ -152,19 +172,28 @@ def get_low_stock_products(
             attributes=product.attributes or {},
             created_at=product.created_at,
             updated_at=product.updated_at,
-            category=categories.get(str(product.category_id)) if product.category_id else None,
-            subcategory=subcategories.get(str(product.subcategory_id)) if product.subcategory_id else None
+            category=(
+                categories.get(str(product.category_id))
+                if product.category_id
+                else None
+            ),
+            subcategory=(
+                subcategories.get(str(product.subcategory_id))
+                if product.subcategory_id
+                else None
+            ),
         )
         result.append(product_data)
 
     return result
+
 
 @router.get("/", response_model=List[ProductReadWithStock])
 def get_products(
     skip: int = 0,
     limit: int = 100,
     search: Optional[str] = None,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Get all products with category and subcategory information"""
     from sqlmodel import select
@@ -175,13 +204,14 @@ def get_products(
     # Implement search functionality
     if search:
         from sqlalchemy import or_
+
         search_filter = or_(
             Product.name.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
             Product.brand.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
             Product.model.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
             Product.sku.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
             Product.supplier.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
-            Product.description.ilike(f"%{search}%")  # type: ignore - SQLAlchemy dynamic attribute
+            Product.description.ilike(f"%{search}%"),  # type: ignore - SQLAlchemy dynamic attribute
         )
         query = query.where(search_filter)
 
@@ -231,21 +261,31 @@ def get_products(
             attributes=product.attributes or {},
             created_at=product.created_at,
             updated_at=product.updated_at,
-            category=categories.get(str(product.category_id)) if product.category_id else None,
-            subcategory=subcategories.get(str(product.subcategory_id)) if product.subcategory_id else None
+            category=(
+                categories.get(str(product.category_id))
+                if product.category_id
+                else None
+            ),
+            subcategory=(
+                subcategories.get(str(product.subcategory_id))
+                if product.subcategory_id
+                else None
+            ),
         )
         result.append(product_data)
 
     return result
 
+
 @router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)
-def create_product(product: ProductCreate, session: Session = Depends(get_session)):
+def create_product(product: ProductCreate, session: Session = Depends(get_session), _: UserRead = Depends(require_manager)):
     """Create a new product"""
     db_product = Product.from_orm(product)
     session.add(db_product)
     session.commit()
     session.refresh(db_product)
     return db_product
+
 
 @router.get("/id/{product_id}", response_model=ProductReadWithStock)
 def get_product(product_id: UUID, session: Session = Depends(get_session)):
@@ -288,16 +328,18 @@ def get_product(product_id: UUID, session: Session = Depends(get_session)):
         created_at=product.created_at,
         updated_at=product.updated_at,
         category=category,
-        subcategory=subcategory
+        subcategory=subcategory,
     )
 
     return product_data
+
 
 @router.put("/id/{product_id}", response_model=Product)
 def update_product(
     product_id: UUID,
     product_update: ProductUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    _: UserRead = Depends(require_manager),
 ):
     """Update a product"""
     product = session.get(Product, product_id)
@@ -320,8 +362,9 @@ def update_product(
 
     return product
 
+
 @router.delete("/id/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_product(product_id: UUID, session: Session = Depends(get_session)):
+def delete_product(product_id: UUID, session: Session = Depends(get_session), _: UserRead = Depends(require_manager)):
     """Soft delete a product (set is_active to False)"""
     product = session.get(Product, product_id)
     if not product:

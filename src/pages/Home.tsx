@@ -1,16 +1,24 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useFetch } from "@/lib/api";
-import { Skeleton } from "@/components/ui/skeleton";
-import { CardSkeleton } from "@/components/ui/card-skeleton";
-import { ErrorDisplay } from "@/components/ui/error-display";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
-import { PageHeader } from "@/components/ui/page-header";
-import { MetricCard } from "@/components/ui/metric-card";
+import {
+  Card,
+  Button,
+  Badge,
+  Group,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  Box,
+  Table,
+} from "@mantine/core";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
+import { MetricCard } from "@/components/MetricCard";
 import { usePageState } from "@/hooks/usePageState";
+import { useAuth } from "@/contexts/AuthContext";
+import { formatCurrency } from "@/lib/utils";
 import {
   Package,
   Wrench,
@@ -19,373 +27,393 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle,
-  Users,
-  BarChart3,
-  Plus
+  ShoppingCart,
+  RotateCcw,
+  ArrowRight,
+  Plus,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
+import type { DashboardStats } from "@/types";
 
-interface DashboardStats {
-  total_products: number;
-  low_stock_products: number;
-  total_repairs: number;
-  pending_repairs: number;
-  completed_repairs: number;
-  total_transactions: number;
-  total_expenses: number;
-  monthly_revenue: number;
-  monthly_profit: number;
-}
+// ─── Technician view ──────────────────────────────────────────────────────────
 
-export default function Home() {
-  const { data: stats, loading, error, refetch } = useFetch<DashboardStats>("/api/analytics/dashboard/stats");
-  const { isRefreshing, handleRefresh } = usePageState();
-  const navigate = useNavigate();
+function TechnicianHome() {
+  const { data: repairs, loading, error, refetch } = useFetch<any[]>("/api/repairs?limit=20");
+  const { data: lowStock } = useFetch<any[]>("/api/products/low-stock");
 
-  const handleNavigate = (path: string) => {
-    navigate(path);
-  };
+  if (loading) return <LoadingState message="Loading your repair queue..." />;
+  if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
 
-  if (error) {
-    return (
-      <ErrorState
-        title="Error Loading Dashboard"
-        description={`Failed to load dashboard stats: ${error.message}`}
-        onRetry={refetch}
-        isRetrying={isRefreshing}
-      />
-    );
-  }
-
-  if (loading) {
-    return (
-      <LoadingState
-        title="Dashboard"
-        description="Loading your business overview..."
-        cardCount={4}
-        showCharts={true}
-      />
-    );
-  }
+  const pending    = repairs?.filter((r) => r.repair_status === "pending")     ?? [];
+  const inProgress = repairs?.filter((r) => r.repair_status === "in_progress") ?? [];
+  const completed  = repairs?.filter((r) => r.repair_status === "completed")   ?? [];
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <PageHeader
-        title="GadgetHub Dashboard"
-        description="Welcome to your comprehensive gadget inventory and repair management system"
-        showRefresh={true}
-        isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-      />
+    <Container size="xl" py="xl">
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
+        <MetricCard title="Pending"     value={pending.length}    icon={Clock}        color="orange" description="Awaiting action"   />
+        <MetricCard title="In Progress" value={inProgress.length} icon={Wrench}       color="blue"   description="Currently active"  />
+        <MetricCard title="Completed"   value={completed.length}  icon={CheckCircle}  color="teal"   description="All time"          />
+      </SimpleGrid>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <Link to="/products">
-          <Card className="hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-blue-200/50 dark:border-blue-700/50">
-            <CardContent className="p-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-xl shadow-lg">
-                  <Plus className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">Add Product</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">New gadget inventory</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mb="xl">
+        <Card className="block-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <Group gap="sm">
+              <Box
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--echo-radius-sm)',
+                  backgroundColor: 'rgba(var(--echo-warning-rgb), 0.10)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Clock size={16} color="var(--echo-warning)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>Pending Queue</Text>
+            </Group>
+            <Button size="xs" variant="light" color="gray" component={Link} to="/repairs" rightSection={<ArrowRight size={13} />}>
+              View All
+            </Button>
+          </Group>
 
-        <Link to="/repairs">
-          <Card className="hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border-green-200/50 dark:border-green-700/50">
-            <CardContent className="p-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl shadow-lg">
-                  <Wrench className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">New Repair</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Customer service</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/transactions">
-          <Card className="hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 bg-gradient-to-br from-purple-50 to-violet-50 dark:from-purple-900/20 dark:to-violet-900/20 border-purple-200/50 dark:border-purple-700/50">
-            <CardContent className="p-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-gradient-to-br from-purple-500 to-violet-500 rounded-xl shadow-lg">
-                  <DollarSign className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">New Transaction</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Sale or purchase</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        <Link to="/expenses">
-          <Card className="hover:shadow-xl transition-all duration-300 cursor-pointer transform hover:scale-105 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/20 border-red-200/50 dark:border-red-700/50">
-            <CardContent className="p-6">
-              <div className="flex items-center space-x-4">
-                <div className="p-3 bg-gradient-to-br from-red-500 to-rose-500 rounded-xl shadow-lg">
-                  <BarChart3 className="h-6 w-6 text-white" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-white">Add Expense</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Track costs</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        <Card className="bg-gradient-to-br from-white to-blue-50/50 dark:from-gray-800 dark:to-blue-900/20 border-blue-200/50 dark:border-blue-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total Products</CardTitle>
-            <div className="p-2 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
-              <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{stats?.total_products || 0}</div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {stats?.low_stock_products || 0} low stock items
-            </p>
-          </CardContent>
+          {pending.length ? (
+            <Stack gap="xs">
+              {pending.slice(0, 6).map((r: any) => (
+                <Box
+                  key={r.id}
+                  p="sm"
+                  style={{
+                    borderRadius: 'var(--echo-radius-sm)',
+                    backgroundColor: 'var(--echo-surface-2)',
+                    border: '1px solid var(--echo-border)',
+                  }}
+                >
+                  <Group justify="space-between">
+                    <div>
+                      <Text size="sm" fw={600} style={{ color: 'var(--echo-text)' }}>{r.customer_name}</Text>
+                      <Text size="xs" style={{ color: 'var(--echo-text-3)' }}>{r.phone_model}</Text>
+                    </div>
+                    <Badge color="orange" variant="light">pending</Badge>
+                  </Group>
+                </Box>
+              ))}
+            </Stack>
+          ) : (
+            <Text size="sm" fw={500} style={{ color: 'var(--echo-text-2)' }}>No pending repairs — great job!</Text>
+          )}
         </Card>
 
-        <Card className="bg-gradient-to-br from-white to-green-50/50 dark:from-gray-800 dark:to-green-900/20 border-green-200/50 dark:border-green-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-gray-700 dark:text-gray-300">Active Repairs</CardTitle>
-            <div className="p-2 bg-green-100 dark:bg-green-900/50 rounded-lg">
-              <Wrench className="h-4 w-4 text-green-600 dark:text-green-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white mb-2">{stats?.total_repairs || 0}</div>
-            <div className="flex items-center space-x-2">
-              <Badge variant="secondary" className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300">
-                <Clock className="h-3 w-3 mr-1" />
-                {stats?.pending_repairs || 0} pending
-              </Badge>
-              <Badge variant="default" className="text-xs bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
-                <CheckCircle className="h-3 w-3 mr-1" />
-                {stats?.completed_repairs || 0} completed
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-white to-purple-50/50 dark:from-gray-800 dark:to-purple-900/20 border-purple-200/50 dark:border-purple-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-gray-700 dark:text-gray-300">Monthly Revenue</CardTitle>
-            <div className="p-2 bg-purple-100 dark:bg-purple-900/50 rounded-lg">
-              <TrendingUp className="h-4 w-4 text-purple-600 dark:text-purple-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-              ${stats?.monthly_revenue?.toLocaleString() || "0"}
-            </div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              ${stats?.monthly_profit?.toLocaleString() || "0"} profit
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-white to-indigo-50/50 dark:from-gray-800 dark:to-indigo-900/20 border-indigo-200/50 dark:border-indigo-700/50 shadow-lg hover:shadow-xl transition-all duration-300">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-            <CardTitle className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total Transactions</CardTitle>
-            <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg">
-              <DollarSign className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">{stats?.total_transactions || 0}</div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              ${stats?.total_expenses?.toLocaleString() || "0"} expenses
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Alerts and Notifications */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <AlertTriangle className="h-5 w-5 text-orange-500" />
-              <span>Low Stock Alerts</span>
-            </CardTitle>
-            <CardDescription>
-              Products that need restocking
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {stats?.low_stock_products ? (
-              <div className="space-y-2">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {stats.low_stock_products} products are running low on stock
-                </p>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/products">View Products</Link>
+        <Stack gap="lg">
+          <Card className="block-card" padding="lg">
+            <Group mb="md" gap="sm">
+              <Box
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--echo-radius-sm)',
+                  backgroundColor: 'rgba(var(--echo-warning-rgb), 0.10)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <AlertTriangle size={16} color="var(--echo-warning)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>Low Stock Parts</Text>
+            </Group>
+            {lowStock?.length ? (
+              <Stack gap="xs">
+                <Text size="sm" style={{ color: 'var(--echo-text-2)' }}>{lowStock.length} parts are running low</Text>
+                <Button size="xs" variant="light" color="gray" component={Link} to="/products" rightSection={<ArrowRight size={13} />}>
+                  View Inventory
                 </Button>
-              </div>
+              </Stack>
             ) : (
-              <p className="text-sm text-green-600 dark:text-green-400">
-                All products are well stocked! 🎉
-              </p>
+              <Text size="sm" fw={500} style={{ color: 'var(--echo-text-2)' }}>All parts well stocked</Text>
             )}
-          </CardContent>
-        </Card>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <Clock className="h-5 w-5 text-blue-500" />
-              <span>Pending Repairs</span>
-            </CardTitle>
-            <CardDescription>
-              Repairs awaiting completion
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {stats?.pending_repairs ? (
-              <div className="space-y-2">
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {stats.pending_repairs} repairs are in progress
-                </p>
-                <Button variant="outline" size="sm" asChild>
-                  <Link to="/repairs">View Repairs</Link>
-                </Button>
-              </div>
-            ) : (
-              <p className="text-sm text-green-600 dark:text-green-400">
-                No pending repairs! 🎉
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="block-card" padding="lg">
+            <Text fw={600} mb="md" style={{ color: 'var(--echo-text)' }}>Quick Actions</Text>
+            <Stack gap="sm">
+              <Button component={Link} to="/repairs" color="indigo" leftSection={<Plus size={16} />} fullWidth>
+                New Repair Job
+              </Button>
+              <Button component={Link} to="/products" variant="light" color="gray" leftSection={<Package size={16} />} fullWidth>
+                Parts Inventory
+              </Button>
+            </Stack>
+          </Card>
+        </Stack>
+      </SimpleGrid>
+    </Container>
+  );
+}
 
-      {/* Feature Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <Package className="h-5 w-5 text-blue-500" />
-              <span>Inventory Management</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Manage your phone parts inventory with real-time stock tracking,
-              low stock alerts, and comprehensive product information.
-            </p>
-            <Button asChild>
-              <Link to="/products">Manage Products</Link>
+// ─── Cashier view ─────────────────────────────────────────────────────────────
+
+function CashierHome() {
+  const { data: recentSales, loading, error, refetch } = useFetch<any[]>("/api/sales?limit=10");
+
+  if (loading) return <LoadingState message="Loading your sales data..." />;
+  if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
+
+  const _d = new Date();
+  const todayLocalStr = `${_d.getFullYear()}-${String(_d.getMonth() + 1).padStart(2, '0')}-${String(_d.getDate()).padStart(2, '0')}`;
+  const todaySales = recentSales?.filter((s: any) => s.sale_date === todayLocalStr) ?? [];
+  const todayRevenue      = todaySales.reduce((sum: number, s: any) => sum + (s.total_amount ?? 0), 0);
+  const pendingPayments   = recentSales?.filter((s: any) => s.payment_status !== "paid") ?? [];
+
+  return (
+    <Container size="xl" py="xl">
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
+        <MetricCard title="Today's Sales"     value={todaySales.length}          icon={ShoppingCart} color="blue"   description="Transactions today"      />
+        <MetricCard title="Today's Revenue"   value={formatCurrency(todayRevenue)} icon={TrendingUp}   color="teal"   description="From completed sales"    />
+        <MetricCard title="Pending Payments"  value={pendingPayments.length}     icon={Clock}        color="orange" description="Awaiting payment"         />
+      </SimpleGrid>
+
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mb="xl">
+        <Card className="block-card" padding="lg">
+          <Group justify="space-between" mb="md">
+            <Group gap="sm">
+              <Box
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--echo-radius-sm)',
+                  backgroundColor: 'rgba(var(--echo-info-rgb), 0.10)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ShoppingCart size={16} color="var(--echo-info)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>Recent Sales</Text>
+            </Group>
+            <Button size="xs" variant="light" color="gray" component={Link} to="/sales" rightSection={<ArrowRight size={13} />}>
+              View All
             </Button>
-          </CardContent>
+          </Group>
+
+          {recentSales?.length ? (
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Customer</Table.Th>
+                  <Table.Th>Amount</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {recentSales.slice(0, 6).map((s: any) => (
+                  <Table.Tr key={s.id}>
+                    <Table.Td>
+                      <Text size="sm" fw={500}>{s.customer_name || "Walk-in"}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="sm" fw={700} style={{ color: 'var(--echo-text)' }}>{formatCurrency(s.total_amount)}</Text>
+                    </Table.Td>
+                    <Table.Td>
+                      <Badge color={s.payment_status === "paid" ? "teal" : "orange"} variant="light">
+                        {s.payment_status}
+                      </Badge>
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          ) : (
+            <Text size="sm" style={{ color: 'var(--echo-text-2)' }}>No sales recorded yet.</Text>
+          )}
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <Wrench className="h-5 w-5 text-green-500" />
-              <span>Repair Services</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Track customer repairs from intake to completion with detailed
-              status updates, parts tracking, and payment management.
-            </p>
-            <Button asChild>
-              <Link to="/repairs">Manage Repairs</Link>
-            </Button>
-          </CardContent>
+        <Card className="block-card" padding="lg">
+          <Text fw={600} mb="md" style={{ color: 'var(--echo-text)' }}>Quick Actions</Text>
+          <Stack gap="sm">
+            <Button component={Link} to="/sales"    color="indigo"      leftSection={<Plus size={16} />}      fullWidth>New Sale</Button>
+            <Button component={Link} to="/returns"  variant="light" color="gray" leftSection={<RotateCcw size={16} />}  fullWidth>Process Return</Button>
+            <Button component={Link} to="/products" variant="light" color="gray" leftSection={<Package size={16} />}    fullWidth>Browse Products</Button>
+          </Stack>
+        </Card>
+      </SimpleGrid>
+    </Container>
+  );
+}
+
+// ─── Manager / Admin view ─────────────────────────────────────────────────────
+
+function ManagerHome({ isAdmin }: { isAdmin: boolean }) {
+  const { data: stats, loading, error, refetch } = useFetch<DashboardStats>("/api/analytics/dashboard/stats");
+
+  if (loading) return <LoadingState message="Loading business overview..." />;
+  if (error) return <ErrorDisplay title="Error Loading Dashboard" message={error.message} onRetry={refetch} />;
+  if (!stats) return null;
+
+  return (
+    <Container size="xl" py="xl">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg" mb="xl">
+        <MetricCard title="Total Products"     value={stats.total_products}                   icon={Package}    color="blue"   description={`${stats.low_stock_products} low stock`}               />
+        <MetricCard title="Active Repairs"     value={stats.total_repairs}                    icon={Wrench}     color="teal"   description={`${stats.pending_repairs} pending`}                    />
+        <MetricCard title="Monthly Revenue"    value={formatCurrency(stats.monthly_revenue)}  icon={TrendingUp} color="indigo" description={`${formatCurrency(stats.monthly_profit)} profit`}      />
+        <MetricCard title="Total Transactions" value={stats.total_transactions}               icon={DollarSign} color="indigo" description={`${formatCurrency(stats.total_expenses)} expenses`}    />
+      </SimpleGrid>
+
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mb="xl">
+        <Card className="block-card" padding="lg">
+          <Group justify="space-between" mb="xs">
+            <Group gap="sm">
+              <Box
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--echo-radius-sm)',
+                  backgroundColor: 'rgba(var(--echo-warning-rgb), 0.10)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <AlertTriangle size={16} color="var(--echo-warning)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>Low Stock Alerts</Text>
+            </Group>
+          </Group>
+          <Text size="sm" mb="md" style={{ color: 'var(--echo-text-3)' }}>Products that need restocking</Text>
+          {stats.low_stock_products ? (
+            <Stack gap="xs">
+              <Text size="sm" style={{ color: 'var(--echo-text-2)' }}>{stats.low_stock_products} products running low</Text>
+              <Button size="xs" variant="light" color="gray" component={Link} to="/products" rightSection={<ArrowRight size={13} />}>
+                View Products
+              </Button>
+            </Stack>
+          ) : (
+            <Text size="sm" fw={500} style={{ color: 'var(--echo-success)' }}>All products well stocked</Text>
+          )}
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <DollarSign className="h-5 w-5 text-purple-500" />
-              <span>Financial Tracking</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Monitor sales, purchases, expenses, and profits with detailed
-              financial reports and analytics.
-            </p>
-            <Button asChild>
-              <Link to="/transactions">View Transactions</Link>
-            </Button>
-          </CardContent>
+        <Card className="block-card" padding="lg">
+          <Group justify="space-between" mb="xs">
+            <Group gap="sm">
+              <Box
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--echo-radius-sm)',
+                  backgroundColor: 'rgba(var(--echo-info-rgb), 0.10)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Clock size={16} color="var(--echo-info)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>Pending Repairs</Text>
+            </Group>
+          </Group>
+          <Text size="sm" mb="md" style={{ color: 'var(--echo-text-3)' }}>Repairs awaiting completion</Text>
+          {stats.pending_repairs ? (
+            <Stack gap="xs">
+              <Text size="sm" style={{ color: 'var(--echo-text-2)' }}>{stats.pending_repairs} repairs in progress</Text>
+              <Button size="xs" variant="light" color="gray" component={Link} to="/repairs" rightSection={<ArrowRight size={13} />}>
+                View Repairs
+              </Button>
+            </Stack>
+          ) : (
+            <Text size="sm" fw={500} style={{ color: 'var(--echo-success)' }}>No pending repairs</Text>
+          )}
+        </Card>
+      </SimpleGrid>
+
+      <SimpleGrid cols={{ base: 1, sm: isAdmin ? 3 : 2 }} spacing="lg">
+        <Card className="block-card" padding="lg">
+          <Group mb="sm" gap="sm">
+            <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-info-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Package size={16} color="var(--echo-info)" />
+            </Box>
+            <Text fw={600} style={{ color: 'var(--echo-text)' }}>Inventory</Text>
+          </Group>
+          <Text size="sm" mb="md" style={{ color: 'var(--echo-text-3)' }}>Manage stock and categories.</Text>
+          <Button variant="light" color="indigo" fullWidth component={Link} to="/products">Manage Products</Button>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <Users className="h-5 w-5 text-orange-500" />
-              <span>Customer Management</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Manage customer information, track repair history, and handle
-              returns and refunds efficiently.
-            </p>
-            <Button variant="outline" asChild>
-              <Link to="/returns">Manage Returns</Link>
-            </Button>
-          </CardContent>
+        <Card className="block-card" padding="lg">
+          <Group mb="sm" gap="sm">
+            <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-accent-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TrendingUp size={16} color="var(--echo-accent)" />
+            </Box>
+            <Text fw={600} style={{ color: 'var(--echo-text)' }}>Analytics</Text>
+          </Group>
+          <Text size="sm" mb="md" style={{ color: 'var(--echo-text-3)' }}>Revenue, profit, and performance.</Text>
+          <Button variant="light" color="indigo" fullWidth component={Link} to="/analytics">View Analytics</Button>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <BarChart3 className="h-5 w-5 text-red-500" />
-              <span>Expense Tracking</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Track business expenses by category, upload receipts, and
-              maintain detailed financial records.
-            </p>
-            <Button variant="outline" asChild>
-              <Link to="/expenses">Track Expenses</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        {isAdmin && (
+          <Card className="block-card" padding="lg">
+            <Group mb="sm" gap="sm">
+              <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-success-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <DollarSign size={16} color="var(--echo-success)" />
+              </Box>
+              <Text fw={600} style={{ color: 'var(--echo-text)' }}>ERP</Text>
+            </Group>
+            <Text size="sm" mb="md" style={{ color: 'var(--echo-text-3)' }}>Business intelligence and strategy.</Text>
+            <Button variant="light" color="indigo" fullWidth component={Link} to="/erp">Open ERP</Button>
+          </Card>
+        )}
+      </SimpleGrid>
+    </Container>
+  );
+}
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 items-center space-x-2">
-              <TrendingUp className="h-5 w-5 text-indigo-500" />
-              <span>Analytics & Reports</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              Generate comprehensive reports on sales, profits, inventory
-              turnover, and business performance metrics.
-            </p>
-            <Button variant="outline" asChild>
-              <Link to="/analytics">View Reports</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
+export default function Home() {
+  const { user } = useAuth();
+  const { isRefreshing, handleRefresh } = usePageState();
+
+  const role = user?.role;
+
+  const roleLabel: Record<string, string> = {
+    admin:      'Admin Console',
+    manager:    'Manager Overview',
+    technician: 'Repair Workshop',
+    cashier:    'Sales Station',
+  };
+
+  const roleDesc: Record<string, string> = {
+    admin:      'Full business overview and system control.',
+    manager:    "Your store's performance at a glance.",
+    technician: 'Your repair queue and parts inventory.',
+    cashier:    'Your sales station and transaction history.',
+  };
+
+  const roleColor: Record<string, string> = {
+    admin: 'violet', manager: 'blue', technician: 'teal', cashier: 'green',
+  };
+
+  return (
+    <>
+      <Container size="xl" pt="xl" pb={0}>
+        <PageHeader
+          title={`Welcome back, ${user?.full_name || user?.username}`}
+          description={roleDesc[role ?? ''] ?? ''}
+          showRefresh
+          isRefreshing={isRefreshing}
+          onRefresh={handleRefresh}
+        >
+          <Badge color={roleColor[role ?? ''] ?? 'indigo'} variant="light" size="lg">
+            {roleLabel[role ?? ''] ?? role}
+          </Badge>
+        </PageHeader>
+      </Container>
+
+      {role === 'technician' && <TechnicianHome />}
+      {role === 'cashier'    && <CashierHome />}
+      {(role === 'manager' || role === 'admin') && <ManagerHome isAdmin={role === 'admin'} />}
+    </>
   );
 }

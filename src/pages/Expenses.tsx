@@ -1,26 +1,39 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, MoreHorizontal, DollarSign, Calendar, FileText, Search } from "lucide-react";
-import { useFetch } from "@/lib/api";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
-import { PageHeader } from "@/components/ui/page-header";
+import React, { useState, useEffect } from "react";
+import { CURRENCY_SYMBOL } from '../config/app';
+import {
+  Button,
+  Card,
+  Badge,
+  TextInput,
+  Textarea,
+  Group,
+  Title,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  Table,
+  Modal,
+  Select,
+  NumberInput,
+  Paper,
+  Box,
+  Pagination,
+  Menu,
+  ActionIcon
+} from "@mantine/core";
+import { DateInput } from "@mantine/dates";
+import { Plus, Edit, Trash2, MoreVertical, DollarSign, Calendar, FileText, Search, Download } from "lucide-react";
+import { useFetch, apiRequest } from "@/lib/api";
+import { LoadingState } from "@/components/LoadingState";
+import { formatCurrency } from "@/lib/utils";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
-import { exportToExcel, exportToCSV, exportToPDF } from "@/lib/exportUtils";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ExpenseCreateSchema, ExpenseUpdateSchema, type ExpenseCreate, type ExpenseUpdate } from "@/lib/schemas";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { toast } from "sonner";
+import { ExpenseCreateSchema, type ExpenseCreate } from "@/lib/schemas";
+import { toast } from "../components/Toast";
 
 interface Expense {
   id: string;
@@ -37,17 +50,15 @@ interface Expense {
 }
 
 export default function Expenses() {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
   const { data, loading, error, refetch } = useFetch<Expense[]>("/api/expenses");
   const { isRefreshing, handleRefresh } = usePageState();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 10;
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
 
-  // React Hook Form with Zod validation
   const form = useForm<ExpenseCreate>({
     resolver: zodResolver(ExpenseCreateSchema),
     defaultValues: {
@@ -61,562 +72,299 @@ export default function Expenses() {
     }
   });
 
-  useEffect(() => {
-    if (data) {
-      setExpenses(data);
-      setFilteredExpenses(data);
-    }
-  }, [data]);
+  const expenses = data || [];
+  const filteredExpenses = expenses.filter(expense =>
+    expense.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    expense.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (expense.vendor && expense.vendor.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
-  // Filter expenses based on search term
-  useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredExpenses(expenses);
-      return;
-    }
-
-    const lowercasedSearch = searchTerm.toLowerCase();
-    const filtered = expenses.filter(expense =>
-      expense.description.toLowerCase().includes(lowercasedSearch) ||
-      expense.category.toLowerCase().includes(lowercasedSearch) ||
-      (expense.vendor && expense.vendor.toLowerCase().includes(lowercasedSearch)) ||
-      (expense.payment_method && expense.payment_method.toLowerCase().includes(lowercasedSearch))
-    );
-
-    setFilteredExpenses(filtered);
-    setCurrentPage(1); // Reset to first page when searching
-  }, [searchTerm, expenses]);
-
-  // Calculate pagination
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredExpenses.slice(indexOfFirstItem, indexOfLastItem);
+  const paginatedItems = filteredExpenses.slice((activePage - 1) * itemsPerPage, activePage * itemsPerPage);
   const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
 
-  const handleSubmit = async (data: ExpenseCreate) => {
-    const url = editingExpense
-      ? `/api/expenses/${editingExpense.id}`
-      : "/api/expenses";
-
+  const handleSubmit = async (formData: ExpenseCreate) => {
+    const url = editingExpense ? `/api/expenses/${editingExpense.id}` : "/api/expenses";
     const method = editingExpense ? "PUT" : "POST";
 
     try {
-      const response = await fetch(url, {
+      // Sanitize data: convert empty strings to null for optional fields
+      const submissionData = {
+        ...formData,
+        reference_number: formData.reference_number === "" ? null : formData.reference_number,
+        vendor: formData.vendor === "" ? null : formData.vendor,
+        notes: formData.notes === "" ? null : formData.notes
+      };
+
+      await apiRequest(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
-      if (response.ok) {
-        toast.success(editingExpense ? "Expense updated successfully!" : "Expense created successfully!");
-        setIsDialogOpen(false);
-        form.reset();
-        refetch();
-      } else {
-        const errorData = await response.json();
-        toast.error("Failed to save expense. Please try again.");
-        console.error("Error saving expense:", errorData);
-      }
-    } catch (error) {
+      toast.success(editingExpense ? "Expense updated successfully!" : "Expense created successfully!");
+      setIsModalOpen(false);
+      form.reset();
+      refetch();
+    } catch (error: unknown) {
       console.error("Error saving expense:", error);
-      toast.error("Network error. Please check your connection and try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to save expense. Please try again.");
     }
   };
 
-  const handleEdit = (expense: Expense) => {
-    setEditingExpense(expense);
-    form.reset({
-      expense_date: expense.expense_date,
-      description: expense.description,
-      amount: expense.amount,
-      category: expense.category as "supplies" | "equipment" | "utilities" | "rent" | "other",
-      reference_number: expense.reference_number || "",
-      vendor: expense.vendor || "",
-      notes: expense.notes || ""
-    });
-    setIsDialogOpen(true);
-  };
+  const openCreateModal = () => {
+      setEditingExpense(null);
+      form.reset({
+        expense_date: new Date().toISOString().split('T')[0],
+        description: "",
+        amount: 0,
+        category: "other",
+        reference_number: "",
+        vendor: "",
+        notes: ""
+      });
+      setIsModalOpen(true);
+    };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this expense?")) {
+    const openEditModal = (expense: Expense) => {
+      setEditingExpense(expense);
+      form.reset({
+        expense_date: expense.expense_date,
+        description: expense.description,
+        amount: expense.amount,
+        category: expense.category,
+        reference_number: expense.reference_number || "",
+        vendor: expense.vendor || "",
+        notes: expense.notes || ""
+      });
+      setIsModalOpen(true);
+    };
+
+    const handleDelete = async (id: string) => {
+      if (!confirm("Are you sure you want to delete this expense?")) return;
       try {
-        const response = await fetch(`/api/expenses/${id}`, {
-          method: "DELETE",
-        });
-
-        if (response.ok) {
-          refetch();
-        }
+        await apiRequest(`/api/expenses/${id}`, { method: "DELETE" });
+        toast.success("Expense deleted successfully!");
+        refetch();
       } catch (error) {
-        console.error("Error deleting expense:", error);
+        toast.error("Failed to delete expense.");
       }
-    }
-  };
+    };
 
-  const resetForm = () => {
-    form.reset();
-    setEditingExpense(null);
-  };
+    const getCategoryBadge = (category: string) => {
+      const colors: Record<string, string> = {
+        rent: "blue",
+        utilities: "cyan",
+        supplies: "teal",
+        equipment: "orange",
+        marketing: "pink",
+        salary: "indigo",
+        other: "gray"
+      };
+      return <Badge color={colors[category] || "gray"} variant="light">{category}</Badge>;
+    };
 
-  const getCategoryBadge = (category: string) => {
-    const variants = {
-      rent: "default",
-      utilities: "secondary",
-      supplies: "outline",
-      equipment: "destructive",
-      marketing: "default",
-      salary: "secondary",
-      other: "outline"
-    } as const;
+    if (loading && !data) return <LoadingState message="Loading expense records..." />;
+    if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
 
-    return (
-      <Badge variant={variants[category as keyof typeof variants]}>
-        {category}
-      </Badge>
-    );
-  };
-
-  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
-    const data = expenses.map(expense => ({
-      ID: expense.id,
-      'Expense Date': expense.expense_date,
-      'Description': expense.description,
-      'Amount': expense.amount,
-      'Category': expense.category,
-      'Reference Number': expense.reference_number || '',
-      'Vendor': expense.vendor || '',
-      'Payment Method': expense.payment_method || '',
-      'Notes': expense.notes || '',
-      'Created At': expense.created_at
-    }));
-
-    const columns = [
-      { header: 'ID', dataKey: 'ID' },
-      { header: 'Expense Date', dataKey: 'Expense Date' },
-      { header: 'Description', dataKey: 'Description' },
-      { header: 'Amount', dataKey: 'Amount' },
-      { header: 'Category', dataKey: 'Category' },
-      { header: 'Vendor', dataKey: 'Vendor' },
-      { header: 'Payment Method', dataKey: 'Payment Method' }
-    ];
-
-    switch (type) {
-      case 'excel':
-        exportToExcel(data, 'expenses');
-        break;
-      case 'csv':
-        exportToCSV(data, 'expenses');
-        break;
-      case 'pdf':
-        exportToPDF(data, columns, 'expenses');
-        break;
-    }
-  };
-
-  const totalExpenses = expenses.reduce((sum, expense) => sum + (expense.amount || 0), 0);
-  const totalExpenseCount = expenses.length;
-  const averageExpense = totalExpenseCount > 0 ? totalExpenses / totalExpenseCount : 0;
-
-  // Calculate expenses by category
-  const expensesByCategory = expenses.reduce((acc, expense) => {
-    const category = expense.category || 'uncategorized';
-    acc[category] = (acc[category] || 0) + (expense.amount || 0);
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Get top expense category
-  const topCategory = Object.entries(expensesByCategory).reduce((max, [category, amount]) =>
-    amount > max.amount ? { category, amount } : max,
-    { category: 'None', amount: 0 }
-  );
-
-  // Pagination controls
-  const goToPage = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  const renderPagination = () => {
-    if (totalPages <= 1) return null;
+    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+    // Compare as YYYY-MM strings to avoid UTC parse edge cases
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const currentMonthExpenses = expenses
+      .filter(e => e.expense_date.startsWith(currentMonth))
+      .reduce((sum, e) => sum + (e.amount ?? 0), 0);
 
     return (
-      <div className="flex gap-2 items-center justify-center space-x-2 mt-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-        >
-          Previous
-        </Button>
-
-        <div className="flex gap-2 items-center space-x-1">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-            <Button
-              key={page}
-              variant={currentPage === page ? "default" : "outline"}
-              size="sm"
-              onClick={() => goToPage(page)}
-              className="w-8 h-8 p-0"
-            >
-              {page}
-            </Button>
-          ))}
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage === totalPages}
-        >
-          Next
-        </Button>
-      </div>
-    );
-  };
-
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <ErrorState
-          title="Error Loading Expenses"
-          description={`Failed to load expenses: ${error.message}`}
-          onRetry={refetch}
-          isRetrying={isRefreshing}
-        />
-      </div>
-    );
-  }
-
-  if (loading && !data) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <LoadingState
+      <Container size="xl" py="xl">
+        <PageHeader
           title="Expenses"
-          description="Loading your expense records..."
-          cardCount={3}
-          showCharts={false}
-        />
-      </div>
-    );
-  }
+          description="Track and manage business expenses"
+          showRefresh={true}
+          isRefreshing={isRefreshing}
+          onRefresh={() => handleRefresh(refetch)}
+        >
+          <Button onClick={openCreateModal} leftSection={<Plus size={16} />}>New Expense</Button>
+        </PageHeader>
 
-  return (
-    <div className="container mx-auto px-4 py-4 sm:py-8">
-      <PageHeader
-        title="Expenses"
-        description="Track and manage business expenses"
-        showRefresh={true}
-        isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        children={
-          <div className="flex gap-2 space-x-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
-              <Input
-                type="search"
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
+          <Paper className="block-card" p="md">
+            <Group justify="space-between">
+              <Stack gap={0}>
+                <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>TOTAL EXPENSES</Text>
+                <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{formatCurrency(totalExpenses)}</Text>
+              </Stack>
+              <DollarSign size={24} color="black" />
+            </Group>
+          </Paper>
+          <Paper className="block-card" p="md">
+            <Group justify="space-between">
+              <Stack gap={0}>
+                <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>THIS MONTH</Text>
+                <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{formatCurrency(currentMonthExpenses)}</Text>
+              </Stack>
+              <Calendar size={24} color="black" />
+            </Group>
+          </Paper>
+          <Paper className="block-card" p="md">
+            <Group justify="space-between">
+              <Stack gap={0}>
+                <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>AVG / ENTRY</Text>
+                <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                  {expenses.length > 0 ? formatCurrency(totalExpenses / expenses.length) : formatCurrency(0)}
+                </Text>
+              </Stack>
+              <FileText size={24} color="black" />
+            </Group>
+          </Paper>
+        </SimpleGrid>
+
+        <Paper className="block-card" p={0} style={{ overflow: 'hidden' }}>
+          <Box p="md" style={{ borderBottom: '1px solid var(--echo-border)' }}>
+            <Group justify="space-between">
+              <TextInput
                 placeholder="Search expenses..."
-                className="pl-8 w-[200px] md:w-[300px]"
+                leftSection={<Search size={16} />}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ flex: 1, maxWidth: 400 }}
+                className="block-input"
               />
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => handleExport('excel')}>
-                  Export to Excel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('csv')}>
-                  Export to CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('pdf')}>
-                  Export to PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => resetForm()}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Expense
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingExpense ? "Edit Expense" : "New Expense"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingExpense ? "Update expense information" : "Add a new expense record"}
-                </DialogDescription>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="expense_date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Expense Date *</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="amount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Amount *</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+              <Button variant="outline" color="dark" className="block-button" size="sm" leftSection={<Download size={16} />}>Export</Button>
+            </Group>
+          </Box>
 
-                <FormField
+          <Table verticalSpacing="sm" style={{ borderCollapse: 'collapse' }}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Date</Table.Th>
+                <Table.Th>Description</Table.Th>
+                <Table.Th>Category</Table.Th>
+                <Table.Th>Vendor</Table.Th>
+                <Table.Th>Amount</Table.Th>
+                <Table.Th>Actions</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {paginatedItems.map((expense) => (
+                <Table.Tr key={expense.id}>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={500}>{new Date(expense.expense_date).toLocaleDateString()}</Text></Table.Td>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}>
+                    <Text size="sm" fw={800}>{expense.description}</Text>
+                    {expense.reference_number && <Text size="xs" color="dimmed" fw={500}>Ref: {expense.reference_number}</Text>}
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}>
+                    <Badge color="dark" variant="outline" style={{ borderRadius: 0, border: '1px solid black' }}>
+                      {expense.category}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={700}>{expense.vendor || '-'}</Text></Table.Td>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={800}>{formatCurrency(expense.amount)}</Text></Table.Td>
+                  <Table.Td style={{ borderBottom: '1px solid black' }}>
+                    <Menu position="bottom-end">
+                      <Menu.Target>
+                        <ActionIcon variant="subtle" color="dark"><MoreVertical size={16} /></ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item leftSection={<Edit size={14} />} onClick={() => openEditModal(expense)} fw={700}>Edit</Menu.Item>
+                        <Menu.Item color="black" leftSection={<Trash2 size={14} />} onClick={() => handleDelete(expense.id)} fw={700} style={{ background: '#fff0f0' }}>Delete</Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+
+          {filteredExpenses.length > 0 && (
+            <Group justify="center" p="md">
+              <Pagination total={totalPages} value={activePage} onChange={setPage} />
+            </Group>
+          )}
+        </Paper>
+
+        <Modal opened={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingExpense ? "Edit Expense" : "New Expense"} size="lg">
+          <form onSubmit={form.handleSubmit(handleSubmit)}>
+            <Stack gap="md">
+              <Group grow align="flex-start">
+                <Controller
+                  name="expense_date"
                   control={form.control}
-                  name="description"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description *</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter expense description" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                    <DateInput
+                      label="EXPENSE DATE"
+                      placeholder="PICK DATE"
+                      required
+                      value={field.value ? new Date(field.value) : null}
+                      onChange={(val: string | Date | null) => {
+                        if (val) {
+                          const dateStr = typeof val !== 'string'
+                            ? val.toISOString().split('T')[0]
+                            : val.split('T')[0];
+                          field.onChange(dateStr);
+                        } else {
+                          field.onChange("");
+                        }
+                      }}
+                      className="block-input"
+                    />
                   )}
                 />
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="category"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category *</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="rent">Rent</SelectItem>
-                            <SelectItem value="utilities">Utilities</SelectItem>
-                            <SelectItem value="supplies">Supplies</SelectItem>
-                            <SelectItem value="equipment">Equipment</SelectItem>
-                            <SelectItem value="marketing">Marketing</SelectItem>
-                            <SelectItem value="salary">Salary</SelectItem>
-                            <SelectItem value="other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="vendor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendor</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter vendor name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
+                <Controller
+                  name="amount"
                   control={form.control}
-                  name="reference_number"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reference Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter reference number" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                    <NumberInput
+                      label="AMOUNT"
+                      required
+                      min={0}
+                      decimalScale={2}
+                      leftSection={CURRENCY_SYMBOL}
+                      value={field.value}
+                      onChange={(val) => field.onChange(Number(val))}
+                      className="block-input"
+                    />
                   )}
                 />
+              </Group>
 
-                <FormField
+              <TextInput label="DESCRIPTION" placeholder="WHAT WAS THIS FOR?" required {...form.register("description")} className="block-input" />
+
+              <Group grow align="flex-start">
+                <Controller
+                  name="category"
                   control={form.control}
-                  name="notes"
                   render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Enter additional notes" rows={3} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                    <Select
+                      label="CATEGORY"
+                      required
+                      data={[
+                        { value: 'rent', label: 'RENT' },
+                        { value: 'utilities', label: 'UTILITIES' },
+                        { value: 'supplies', label: 'SUPPLIES' },
+                        { value: 'equipment', label: 'EQUIPMENT' },
+                        { value: 'marketing', label: 'MARKETING' },
+                        { value: 'salary', label: 'SALARY' },
+                        { value: 'other', label: 'OTHER' }
+                      ]}
+                      value={field.value}
+                      onChange={field.onChange}
+                      className="block-input"
+                    />
                   )}
                 />
+                <TextInput label="VENDOR" placeholder="VENDOR NAME" {...form.register("vendor")} className="block-input" />
+              </Group>
 
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={!form.formState.isValid}>
-                    {editingExpense ? "Update" : "Create"} Expense
-                  </Button>
-                </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-          </div>
-        }
-      />
+              <TextInput label="REFERENCE NUMBER" placeholder="INVOICE #, RECEIPT #, ETC." {...form.register("reference_number")} className="block-input" />
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Expenses</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${totalExpenses.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              {expenses.length} expense records
-            </p>
-          </CardContent>
-        </Card>
+              <Textarea label="NOTES" placeholder="ADDITIONAL DETAILS..." minRows={2} {...form.register("notes")} className="block-input" />
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">This Month</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${expenses
-                .filter(expense => {
-                  const expenseDate = new Date(expense.expense_date);
-                  const now = new Date();
-                  return expenseDate.getMonth() === now.getMonth() &&
-                         expenseDate.getFullYear() === now.getFullYear();
-                })
-                .reduce((sum, expense) => sum + (expense.amount || 0), 0)
-                .toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Current month expenses
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Average Expense</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${averageExpense.toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Top category: {topCategory.category} (${topCategory.amount.toFixed(2)})
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-lg sm:text-xl">Expense Records</CardTitle>
-          <CardDescription className="text-sm">
-            {filteredExpenses.length} expense records found {searchTerm && `for "${searchTerm}"`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0 sm:p-6">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[100px]">Date</TableHead>
-                  <TableHead className="min-w-[150px]">Description</TableHead>
-                  <TableHead className="min-w-[100px]">Category</TableHead>
-                  <TableHead className="min-w-[120px] hidden sm:table-cell">Vendor</TableHead>
-                  <TableHead className="min-w-[100px]">Amount</TableHead>
-                  <TableHead className="min-w-[120px] hidden sm:table-cell">Payment</TableHead>
-                  <TableHead className="min-w-[80px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {currentItems.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell className="py-3 sm:py-4 text-sm">{new Date(expense.expense_date).toLocaleDateString()}</TableCell>
-                    <TableCell className="py-3 sm:py-4">
-                      <div>
-                        <div className="font-medium text-sm sm:text-base truncate">{expense.description}</div>
-                        {expense.reference_number && (
-                          <div className="text-xs sm:text-sm text-gray-500">Ref: {expense.reference_number}</div>
-                        )}
-                        <div className="text-xs text-gray-500 sm:hidden mt-1">
-                          {expense.vendor || "No vendor"} • {expense.payment_method || "No method"}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-3 sm:py-4">{getCategoryBadge(expense.category)}</TableCell>
-                    <TableCell className="py-3 sm:py-4 hidden sm:table-cell">{expense.vendor || "-"}</TableCell>
-                    <TableCell className="py-3 sm:py-4 font-medium text-sm">${expense.amount.toFixed(2)}</TableCell>
-                    <TableCell className="py-3 sm:py-4 hidden sm:table-cell text-sm">{expense.payment_method || "-"}</TableCell>
-                    <TableCell className="py-3 sm:py-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => handleEdit(expense)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(expense.id)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          {renderPagination()}
-        </CardContent>
-      </Card>
-    </div>
-  );
+              <Group justify="flex-end" mt="xl">
+                <Button variant="light" color="gray" onClick={() => setIsModalOpen(false)}>CANCEL</Button>
+                <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>{editingExpense ? "UPDATE" : "CREATE"} EXPENSE</Button>
+              </Group>
+            </Stack>
+          </form>
+        </Modal>
+      </Container>
+    );
 }

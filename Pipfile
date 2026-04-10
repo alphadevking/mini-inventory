@@ -12,8 +12,12 @@ uvicorn = "*"
 alembic = "*"
 pydantic-settings = "*"
 requests = "*"
+python-jose = {extras = ["cryptography"], version = "*"}
+passlib = {extras = ["bcrypt"], version = "*"}
+python-multipart = "*"
+argon2-cffi = "*"
 
 [dev-packages]
 
 [requires]
-python_version = "3.9"
+python_version = "3.11"

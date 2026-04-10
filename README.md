@@ -1,23 +1,34 @@
 # Mini Inventory System
 
-A comprehensive inventory management system for phone repair parts with expense tracking and profit analysis.
+A comprehensive inventory management system for phone repair parts and mobile devices with expense tracking, profit analysis, and ERP features.
 
 ## Features
 
-- 📱 Product management (phone models, part types, variants)
-- 📊 Stock tracking with low stock alerts
-- 💰 Purchase and sale transaction tracking
-- 📈 Financial summary and profit analysis
-- 📤 Export functionality (Excel, CSV, PDF)
-- 🌙 Dark mode support
-- 📱 Responsive design
+- 📱 **Product Management**: Track phone models, part types, and variants with detailed attributes.
+- 📂 **Multi-level Categories**: Organise products with categories and subcategories (e.g., Smartphones > iPhone).
+- 📊 **Stock Tracking**: Real-time inventory monitoring with low stock alerts.
+- 💰 **Financial Management**: Track purchases, sales, and expenses in Nigerian Naira (NGN).
+- 📈 **ERP Dashboard**: High-level overview of business performance and financial health.
+- 🔐 **User Authentication**: Secure Login and Registration with role-based access (Admin, Cashier).
+- 📤 **Export Functionality**: Export reports to Excel, CSV, and PDF.
+- 🌙 **Modern Design**: Responsive UI with dark mode support using Mantine 8 and Tailwind CSS 4.
 
 ## Tech Stack
 
-- **Frontend**: React + TypeScript + Vite + Tailwind CSS
-- **Backend**: FastAPI + SQLModel + Alembic
+### Frontend
+- **Framework**: React 19
+- **Build Tool**: Vite 7
+- **Styling**: Tailwind CSS 4
+- **Components**: Mantine 8 + Lucide Icons
+- **Charts**: Recharts
+- **State Management/Routing**: React Router 7
+
+### Backend
+- **Framework**: FastAPI
+- **ORM**: SQLModel (SQLAlchemy + Pydantic)
+- **Migrations**: Alembic
 - **Database**: PostgreSQL (Neon) / SQLite (local dev)
-- **Deployment**: Vercel
+- **Authentication**: JWT (OAuth2)
 
 ## Quick Start
 
@@ -35,7 +46,7 @@ For detailed setup and usage instructions, see the [docs/](./docs/) folder:
 
 ### 🚀 Quick Start Servers
 ```bash
-# Cross-platform (recommended)
+# Cross-platform (uses start-servers.js)
 pnpm start
 
 # Windows PowerShell
@@ -45,7 +56,7 @@ pnpm start
 ### 2. Install dependencies
 ```bash
 # Install Python dependencies
-pipenv install
+pnpm run setup  # Runs python setup.py to install requirements
 
 # Install Node.js dependencies
 pnpm install
@@ -76,11 +87,15 @@ pipenv run alembic upgrade head
 
 ### 5. Start the development server
 ```bash
-# Terminal 1: Start backend
-pipenv run uvicorn api.main:app --reload --port 9000
+# Concurrent startup (Recommended)
+pnpm start:concurrent
 
-# Terminal 2: Start frontend
-pnpm dev --port 9001
+# Manual startup:
+# Terminal 1: Start backend (Port 9000)
+pnpm start:backend
+
+# Terminal 2: Start frontend (Port 9001)
+pnpm start:frontend
 ```
 
 ### 6. Open your browser
@@ -101,130 +116,58 @@ DATABASE_URL=postgresql+psycopg2://[user]:[password]@[endpoint]/[dbname]?sslmode
 # DB_TYPE=sqlite
 # DATABASE_URL=sqlite:///./test.db
 
-# In production (Docker/cloud):
-# ALLOWED_ORIGINS="https://yourdomain.com,https://api.yourdomain.com"
-```
-
-## Database Setup
-
-### Creating a Neon Database
-
-1. **Sign up**: Go to [console.neon.tech](https://console.neon.tech)
-2. **Create project**: Click "Create Project"
-3. **Get connection string**:
-   - Go to your project dashboard
-   - Click "Connection Details"
-   - Copy the connection string
-4. **Update .env**: Replace the placeholder in your `.env` file
-
-### Running Migrations
-
-```bash
-# Create a new migration
-pipenv run alembic revision --autogenerate -m "description"
-
-# Apply migrations
-pipenv run alembic upgrade head
-
-# Rollback migration
-pipenv run alembic downgrade -1
+# JWT Secret Key
+SECRET_KEY="your-secret-key"
 ```
 
 ## API Endpoints
 
+### Auth
+- `POST /api/auth/register` - Register a new user
+- `POST /api/auth/login` - Authenticate and get token
+- `GET /api/auth/me` - Get current user info
+
 ### Products
-- `GET /api/products/` - List all products (with optional search, pagination)
+- `GET /api/products/` - List all products
 - `POST /api/products/` - Create new product
 - `GET /api/products/id/{id}` - Get product by ID
 - `PUT /api/products/id/{id}` - Update product
 - `DELETE /api/products/id/{id}` - Delete product
-- `GET /api/products/search` - Search products
 - `GET /api/products/low-stock/` - Get low stock products
 
-### Transactions
-- `GET /api/transactions/` - List all transactions (with optional filtering)
-- `POST /api/transactions/` - Create new transaction
-- `GET /api/transactions/{id}` - Get transaction by ID
-- `PUT /api/transactions/{id}` - Update transaction
-- `DELETE /api/transactions/{id}` - Delete transaction
-
-### Analytics
-- `GET /api/analytics/dashboard/stats` - Get dashboard statistics
-- `GET /api/analytics/financial-summary` - Get financial summary
-- `GET /api/analytics/sales/trends` - Get sales trends
-- `GET /api/analytics/inventory/analysis` - Get inventory analysis
-- `GET /api/analytics/products/top-selling` - Get top selling products
-- `GET /api/analytics/categories/performance` - Get category performance
-- `GET /api/analytics/revenue/breakdown` - Get revenue breakdown
-- `GET /api/analytics/expenses/breakdown` - Get expenses breakdown
-- `GET /api/analytics/profitability/analysis` - Get profitability analysis
-
-### Categories
+### Categories & Subcategories
 - `GET /api/categories/` - List all categories
 - `POST /api/categories/` - Create new category
-- `GET /api/categories/{id}` - Get category by ID
-- `PUT /api/categories/{id}` - Update category
-- `DELETE /api/categories/{id}` - Delete category
+- `GET /api/categories/subcategories` - List all subcategories
+- `GET /api/categories/{category_id}/subcategories` - List subcategories for category
 
-### Expenses
-- `GET /api/expenses/` - List all expenses
-- `POST /api/expenses/` - Create new expense
+### Transactions
+- `GET /api/transactions/` - List all transactions
+- `POST /api/transactions/` - Create new transaction
 
-### Repairs
-- `GET /api/repairs/` - List all repairs
-- `POST /api/repairs/` - Create new repair
-
-### Returns
-- `GET /api/returns/` - List all returns
-- `POST /api/returns/` - Create new return
-
-### ERP
+### ERP & Analytics
 - `GET /api/erp/dashboard` - Get ERP dashboard data
+- `GET /api/analytics/dashboard/stats` - Get key statistics
+- `GET /api/analytics/financial-summary` - Get financial health overview
 
-## Deployment
+### System
+- `GET /health` - API health check
 
-### Vercel Deployment
-
-1. **Connect to Vercel**: Push your code to GitHub and connect to Vercel
-2. **Set environment variables**: Add your `DATABASE_URL` in Vercel dashboard
-3. **Deploy**: Vercel will automatically build and deploy your app
-
-### Environment Variables for Production
-
-In your Vercel dashboard, add:
-- `DB_TYPE=postgres`
-- `DATABASE_URL=your_neon_connection_string`
-
-## Development
-
-### Project Structure
+## Project Structure
 ```
 mini-inventory/
 ├── api/                 # FastAPI backend
-│   ├── main.py         # API endpoints
-│   ├── models.py       # SQLModel models
-│   └── database.py     # Database configuration
+│   ├── routers/        # API route handlers
+│   ├── models.py       # SQLModel definitions
+│   ├── auth.py         # JWT & Security logic
+│   └── database.py     # Session management
 ├── src/                # React frontend
-│   ├── components/     # React components
-│   ├── pages/          # Page components
-│   └── lib/            # Utilities
+│   ├── components/     # Reusable UI components
+│   ├── pages/          # Full page views
+│   ├── lib/            # Utilities (formatters, etc.)
+│   └── providers/      # Context providers (Auth, Theme)
 ├── alembic/            # Database migrations
 └── public/             # Static assets
-```
-
-### Available Scripts
-
-```bash
-# Development
-pnpm dev              # Start frontend dev server
-pipenv run uvicorn api.main:app --reload  # Start backend
-
-# Build
-pnpm build            # Build frontend for production
-
-# Database
-pipenv run alembic upgrade head    # Apply migrations
-pipenv run alembic revision --autogenerate -m "description"  # Create migration
 ```
 
 ## Contributing
@@ -232,8 +175,7 @@ pipenv run alembic revision --autogenerate -m "description"  # Create migration
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+4. Submit a pull request
 
 ## License
 

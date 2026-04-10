@@ -1,598 +1,1144 @@
-import React, { useState, useEffect } from "react";
-import { useFetch } from "@/lib/api";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TableSkeleton } from "@/components/ui/table-skeleton";
-import { CardSkeleton } from "@/components/ui/card-skeleton";
-import { ErrorDisplay } from "@/components/ui/error-display";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
-import { PageHeader } from "@/components/ui/page-header";
-import { DataTable } from "@/components/ui/data-table";
+import React, { useState, useMemo } from "react";
+import { CURRENCY_SYMBOL } from '../config/app';
+import { useFetch, repairsApi, apiRequest } from "@/lib/api";
+import { useAuth } from "../contexts/AuthContext";
+import {
+  Button,
+  Badge,
+  TextInput,
+  Textarea,
+  Group,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  Table,
+  Modal,
+  Select,
+  NumberInput,
+  Paper,
+  Box,
+  Pagination,
+  Menu,
+  ActionIcon,
+  Tabs,
+  Divider,
+  Timeline,
+} from "@mantine/core";
+import { DateInput } from "@mantine/dates";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, Eye, MoreHorizontal, Wrench, Clock, CheckCircle, Search } from "lucide-react";
-import { useForm } from "react-hook-form";
+import {
+  Plus,
+  Eye,
+  MoreVertical,
+  Wrench,
+  Clock,
+  CheckCircle,
+  Search,
+  DollarSign,
+  Trash2,
+  Package,
+  ArrowRight,
+} from "lucide-react";
+import { useForm, Controller, type Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { RepairCreateSchema, RepairUpdateSchema, type RepairCreate, type RepairUpdate } from "@/lib/schemas";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { toast } from "sonner";
+import {
+  RepairCreateSchema,
+  RepairUpdateSchema,
+  RepairStatusTransitionSchema,
+  AddRepairPartSchema,
+  type RepairCreate,
+  type RepairUpdate,
+  type RepairStatusTransition,
+  type AddRepairPart,
+} from "@/lib/schemas";
+import { formatCurrency } from "@/lib/utils";
+import { toast } from "../components/Toast";
+import type { Repair, Product, RepairStatus } from "@/types";
 
-interface Repair {
-  id: string;
-  customer_name: string;
-  customer_phone: string;
-  customer_email?: string;
-  phone_model: string;
-  issue_description: string;
-  repair_status: "pending" | "in_progress" | "completed" | "cancelled";
-  estimated_cost?: number;
-  estimated_days?: number;
-  notes?: string;
-  created_at: string;
+// ─── Allowed status transitions ───────────────────────────────────────────────
+
+const NEXT_STATUSES: Record<RepairStatus, RepairStatus[]> = {
+  pending: ["in_progress", "cancelled"],
+  in_progress: ["completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+const STATUS_LABELS: Record<RepairStatus, string> = {
+  pending: "Pending",
+  in_progress: "In Progress",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+const STATUS_COLORS: Record<RepairStatus, string> = {
+  pending: "orange",
+  in_progress: "blue",
+  completed: "teal",
+  cancelled: "gray",
+};
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: RepairStatus }) {
+  return (
+    <Badge color={STATUS_COLORS[status]} variant="outline" fw={700}>
+      {STATUS_LABELS[status]}
+    </Badge>
+  );
 }
 
-export default function Repairs() {
-  const [repairs, setRepairs] = useState<Repair[]>([]);
-  const [filteredRepairs, setFilteredRepairs] = useState<Repair[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
-  const { data, loading, error, refetch } = useFetch<Repair[]>("/api/repairs");
-  const { isRefreshing, handleRefresh } = usePageState();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingRepair, setEditingRepair] = useState<Repair | null>(null);
+function PaymentBadge({ status }: { status: string }) {
+  const color = status === "paid" ? "teal" : status === "partial" ? "orange" : "red";
+  return (
+    <Badge color={color} variant="outline" fw={700}>
+      {status.toUpperCase()}
+    </Badge>
+  );
+}
 
-  // React Hook Form with Zod validation
-  const form = useForm({
-    resolver: zodResolver(RepairCreateSchema),
+// ─── Status Transition Panel ──────────────────────────────────────────────────
+
+function StatusTransitionPanel({
+  repair,
+  onTransitioned,
+}: {
+  repair: Repair;
+  onTransitioned: () => void;
+}) {
+  const nextStatuses = NEXT_STATUSES[repair.repair_status];
+  const form = useForm<RepairStatusTransition>({
+    resolver: zodResolver(RepairStatusTransitionSchema),
+    defaultValues: { new_status: nextStatuses[0], notes: "", expected_version: repair.version },
+  });
+
+  const submit = async (data: RepairStatusTransition) => {
+    try {
+      await repairsApi.transitionStatus(repair.id, { ...data, expected_version: repair.version });
+      toast.success(`Status updated to ${STATUS_LABELS[data.new_status]}`);
+      onTransitioned();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to transition status");
+    }
+  };
+
+  if (nextStatuses.length === 0) {
+    return (
+      <Text size="sm" color="dimmed" fw={600}>
+        No further transitions available for this repair.
+      </Text>
+    );
+  }
+
+  return (
+    <form onSubmit={form.handleSubmit(submit)}>
+      <Stack gap="sm">
+        <Controller
+          name="new_status"
+          control={form.control}
+          render={({ field }) => (
+            <Select
+              label="MOVE TO STATUS"
+              data={nextStatuses.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+              value={field.value}
+              onChange={(val) => field.onChange(val as RepairStatus)}
+              className="block-input"
+            />
+          )}
+        />
+        <Textarea
+          label="NOTES (OPTIONAL)"
+          placeholder="Reason for status change..."
+          minRows={2}
+          {...form.register("notes")}
+          className="block-input"
+        />
+        <Group justify="flex-end">
+          <Button
+            type="submit"
+            className="block-button"
+            leftSection={<ArrowRight size={14} />}
+            loading={form.formState.isSubmitting}
+          >
+            TRANSITION
+          </Button>
+        </Group>
+      </Stack>
+    </form>
+  );
+}
+
+// ─── Add Part Panel ───────────────────────────────────────────────────────────
+
+function AddPartPanel({
+  repair,
+  products,
+  onPartAdded,
+}: {
+  repair: Repair;
+  products: Product[];
+  onPartAdded: () => void;
+}) {
+  const form = useForm<AddRepairPart>({
+    resolver: zodResolver(AddRepairPartSchema),
+    defaultValues: { product_id: "", quantity_used: 1 },
+  });
+
+  const submit = async (data: AddRepairPart) => {
+    try {
+      await repairsApi.addPart(repair.id, data);
+      toast.success("Part added and stock deducted");
+      form.reset({ product_id: "", quantity_used: 1 });
+      onPartAdded();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add part");
+    }
+  };
+
+  const inStockProducts = products.filter((p) => p.current_stock > 0 && p.is_active);
+
+  return (
+    <form onSubmit={form.handleSubmit(submit)}>
+      <Stack gap="sm">
+        <Controller
+          name="product_id"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Select
+              label="PRODUCT / PART"
+              placeholder="Select part..."
+              searchable
+              data={inStockProducts.map((p) => ({
+                value: p.id,
+                label: `${p.name} — Stock: ${p.current_stock}`,
+              }))}
+              value={field.value || null}
+              onChange={(val) => field.onChange(val ?? "")}
+              error={fieldState.error?.message}
+              className="block-input"
+            />
+          )}
+        />
+        <Group grow align="flex-end">
+          <Controller
+            name="quantity_used"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <NumberInput
+                label="QTY USED"
+                min={1}
+                value={field.value}
+                onChange={(val) => field.onChange(Number(val))}
+                error={fieldState.error?.message}
+                className="block-input"
+              />
+            )}
+          />
+          <Controller
+            name="unit_cost_override"
+            control={form.control}
+            render={({ field }) => (
+              <NumberInput
+                label="COST OVERRIDE (OPT.)"
+                min={0}
+                decimalScale={2}
+                leftSection={CURRENCY_SYMBOL}
+                placeholder="Default: purchase cost"
+                value={field.value ?? ""}
+                onChange={(val) => field.onChange(val === "" ? undefined : Number(val))}
+                className="block-input"
+              />
+            )}
+          />
+        </Group>
+        <Group justify="flex-end">
+          <Button
+            type="submit"
+            className="block-button"
+            leftSection={<Plus size={14} />}
+            loading={form.formState.isSubmitting}
+          >
+            ADD PART
+          </Button>
+        </Group>
+      </Stack>
+    </form>
+  );
+}
+
+// ─── Detail Modal ─────────────────────────────────────────────────────────────
+
+function RepairDetailModal({
+  repair: initialRepair,
+  products,
+  onClose,
+  onMutated,
+}: {
+  repair: Repair;
+  products: Product[];
+  onClose: () => void;
+  onMutated: () => void;
+}) {
+  const [repair, setRepair] = useState<Repair>(initialRepair);
+
+  const refresh = async () => {
+    try {
+      const updated = await repairsApi.get(repair.id);
+      setRepair(updated);
+      onMutated();
+    } catch {
+      // ignore — modal stays open with stale data
+    }
+  };
+
+  const removePart = async (partId: string) => {
+    if (!confirm("Remove this part? Stock will be restored.")) return;
+    try {
+      await repairsApi.removePart(repair.id, partId);
+      toast.success("Part removed — stock restored");
+      refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove part");
+    }
+  };
+
+  const productMap = useMemo(
+    () => Object.fromEntries(products.map((p) => [p.id, p])),
+    [products]
+  );
+
+  return (
+    <Modal
+      opened
+      onClose={onClose}
+      title={`Repair — ${repair.customer_name}`}
+      size="xl"
+    >
+      <Tabs defaultValue="details">
+        <Tabs.List mb="md">
+          <Tabs.Tab value="details" fw={700}>Details</Tabs.Tab>
+          <Tabs.Tab value="parts" fw={700}>Parts Used ({repair.parts_used?.length ?? 0})</Tabs.Tab>
+          <Tabs.Tab value="status" fw={700}>Status History</Tabs.Tab>
+          {NEXT_STATUSES[repair.repair_status].length > 0 && (
+            <Tabs.Tab value="transition" fw={700}>Transition</Tabs.Tab>
+          )}
+        </Tabs.List>
+
+        {/* ── Details ── */}
+        <Tabs.Panel value="details">
+          <Stack gap="xs">
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Customer</Text>
+              <Text size="sm" fw={800}>{repair.customer_name}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Phone</Text>
+              <Text size="sm" fw={700}>{repair.customer_phone}</Text>
+            </Group>
+            {repair.customer_email && (
+              <>
+                <Divider />
+                <Group justify="space-between">
+                  <Text size="sm" color="dimmed" fw={700}>Email</Text>
+                  <Text size="sm" fw={700}>{repair.customer_email}</Text>
+                </Group>
+              </>
+            )}
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Device</Text>
+              <Text size="sm" fw={800}>{repair.phone_model}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Repair Status</Text>
+              <StatusBadge status={repair.repair_status} />
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Payment Status</Text>
+              <PaymentBadge status={repair.payment_status} />
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Labor Cost</Text>
+              <Text size="sm" fw={800}>{formatCurrency(repair.labor_cost)}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Parts Cost</Text>
+              <Text size="sm" fw={800}>{formatCurrency(repair.parts_cost)}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Total</Text>
+              <Text size="sm" fw={900}>{formatCurrency(repair.total_amount)}</Text>
+            </Group>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Amount Paid</Text>
+              <Text size="sm" fw={800}>{formatCurrency(repair.amount_paid)}</Text>
+            </Group>
+            {repair.issue_description && (
+              <>
+                <Divider />
+                <Stack gap={2}>
+                  <Text size="sm" color="dimmed" fw={700}>Issue</Text>
+                  <Text size="sm" fw={600}>{repair.issue_description}</Text>
+                </Stack>
+              </>
+            )}
+            {repair.technician_notes && (
+              <>
+                <Divider />
+                <Stack gap={2}>
+                  <Text size="sm" color="dimmed" fw={700}>Technician Notes</Text>
+                  <Text size="sm" fw={600}>{repair.technician_notes}</Text>
+                </Stack>
+              </>
+            )}
+          </Stack>
+        </Tabs.Panel>
+
+        {/* ── Parts Used ── */}
+        <Tabs.Panel value="parts">
+          <Stack gap="md">
+            {repair.parts_used && repair.parts_used.length > 0 ? (
+              <Table verticalSpacing="sm" style={{ borderCollapse: "collapse" }}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Part</Table.Th>
+                    <Table.Th>Qty</Table.Th>
+                    <Table.Th>Unit Cost</Table.Th>
+                    <Table.Th>Total</Table.Th>
+                    <Table.Th></Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {repair.parts_used.map((part) => (
+                    <Table.Tr key={part.id}>
+                      <Table.Td style={{ borderBottom: "1px solid black" }}>
+                        <Text size="sm" fw={700}>
+                          {productMap[part.product_id]?.name ?? part.product_id.slice(0, 8)}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: "1px solid black" }}>
+                        <Text size="sm" fw={700}>{part.quantity_used}</Text>
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: "1px solid black" }}>
+                        <Text size="sm" fw={700}>{formatCurrency(part.unit_cost)}</Text>
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: "1px solid black" }}>
+                        <Text size="sm" fw={800}>{formatCurrency(part.total_cost)}</Text>
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: "1px solid black" }}>
+                        {repair.repair_status !== "completed" && repair.repair_status !== "cancelled" && (
+                          <ActionIcon
+                            variant="subtle"
+                            color="red"
+                            onClick={() => removePart(part.id)}
+                            title="Remove part"
+                          >
+                            <Trash2 size={14} />
+                          </ActionIcon>
+                        )}
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            ) : (
+              <Text size="sm" color="dimmed" fw={600}>No parts added yet.</Text>
+            )}
+
+            {repair.repair_status !== "completed" && repair.repair_status !== "cancelled" && (
+              <>
+                <Divider label="ADD PART" labelPosition="left" fw={700} />
+                <AddPartPanel repair={repair} products={products} onPartAdded={refresh} />
+              </>
+            )}
+          </Stack>
+        </Tabs.Panel>
+
+        {/* ── Status History ── */}
+        <Tabs.Panel value="status">
+          {repair.status_log && repair.status_log.length > 0 ? (
+            <Timeline active={repair.status_log.length - 1} bulletSize={20} lineWidth={2}>
+              {repair.status_log.map((log, i) => (
+                <Timeline.Item
+                  key={log.id}
+                  title={
+                    <Text size="sm" fw={800}>
+                      {log.from_status
+                        ? `${STATUS_LABELS[log.from_status]} → ${STATUS_LABELS[log.to_status]}`
+                        : STATUS_LABELS[log.to_status]}
+                    </Text>
+                  }
+                >
+                  <Text size="xs" color="dimmed" fw={600}>
+                    {new Date(log.timestamp).toLocaleString()}
+                    {log.changed_by && ` · ${log.changed_by}`}
+                  </Text>
+                  {log.notes && (
+                    <Text size="xs" fw={600} mt={2}>{log.notes}</Text>
+                  )}
+                </Timeline.Item>
+              ))}
+            </Timeline>
+          ) : (
+            <Text size="sm" color="dimmed" fw={600}>No status history available.</Text>
+          )}
+        </Tabs.Panel>
+
+        {/* ── Transition ── */}
+        <Tabs.Panel value="transition">
+          <StatusTransitionPanel repair={repair} onTransitioned={refresh} />
+        </Tabs.Panel>
+      </Tabs>
+    </Modal>
+  );
+}
+
+// ─── Edit Repair Modal ────────────────────────────────────────────────────────
+
+function EditRepairModal({
+  repair,
+  onClose,
+  onSaved,
+}: {
+  repair: Repair;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const form = useForm<RepairUpdate>({
+    resolver: zodResolver(RepairUpdateSchema) as Resolver<RepairUpdate>,
+    defaultValues: {
+      customer_name: repair.customer_name,
+      customer_phone: repair.customer_phone,
+      customer_email: repair.customer_email ?? "",
+      phone_model: repair.phone_model,
+      issue_description: repair.issue_description,
+      technician_notes: repair.technician_notes ?? "",
+      payment_status: repair.payment_status,
+      estimated_completion: repair.estimated_completion?.split("T")[0] ?? "",
+      labor_cost: repair.labor_cost,
+      amount_paid: repair.amount_paid,
+    },
+  });
+
+  const laborCost = form.watch("labor_cost") ?? repair.labor_cost;
+  const computedTotal = laborCost + (repair.parts_cost ?? 0);
+
+  const submit = async (data: RepairUpdate) => {
+    try {
+      const payload = {
+        ...data,
+        customer_email: data.customer_email === "" ? null : data.customer_email,
+        estimated_completion: data.estimated_completion === "" ? null : data.estimated_completion,
+      };
+      await repairsApi.update(repair.id, payload);
+      toast.success("Repair updated");
+      onSaved();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update repair");
+    }
+  };
+
+  return (
+    <Modal opened onClose={onClose} title="Edit Repair" size="lg">
+      <form onSubmit={form.handleSubmit(submit)}>
+        <Stack gap="md">
+          <Group grow>
+            <TextInput
+              label="CUSTOMER NAME"
+              required
+              {...form.register("customer_name")}
+              error={form.formState.errors.customer_name?.message}
+              className="block-input"
+            />
+            <TextInput
+              label="PHONE NUMBER"
+              required
+              {...form.register("customer_phone")}
+              error={form.formState.errors.customer_phone?.message}
+              className="block-input"
+            />
+          </Group>
+          <Group grow>
+            <TextInput label="EMAIL (OPTIONAL)" {...form.register("customer_email")} className="block-input" />
+            <TextInput
+              label="PHONE MODEL"
+              required
+              {...form.register("phone_model")}
+              error={form.formState.errors.phone_model?.message}
+              className="block-input"
+            />
+          </Group>
+          <Textarea
+            label="ISSUE DESCRIPTION"
+            required
+            minRows={3}
+            {...form.register("issue_description")}
+            error={form.formState.errors.issue_description?.message}
+            className="block-input"
+          />
+          <Group grow align="flex-start">
+            <Controller
+              name="payment_status"
+              control={form.control}
+              render={({ field }) => (
+                <Select
+                  label="PAYMENT STATUS"
+                  data={[
+                    { value: "pending", label: "PENDING" },
+                    { value: "partial", label: "PARTIAL" },
+                    { value: "paid", label: "PAID" },
+                  ]}
+                  value={field.value}
+                  onChange={field.onChange}
+                  className="block-input"
+                />
+              )}
+            />
+            <Controller
+              name="estimated_completion"
+              control={form.control}
+              render={({ field }) => (
+                <DateInput
+                  label="EST. COMPLETION"
+                  placeholder="Pick date"
+                  value={field.value || null}
+                  onChange={(val: string | null) => {
+                    field.onChange(val ?? "");
+                  }}
+                  className="block-input"
+                />
+              )}
+            />
+          </Group>
+          <Group grow align="flex-start">
+            <Controller
+              name="labor_cost"
+              control={form.control}
+              render={({ field }) => (
+                <NumberInput
+                  label="LABOR COST"
+                  min={0}
+                  decimalScale={2}
+                  leftSection={CURRENCY_SYMBOL}
+                  value={field.value}
+                  onChange={(val) => field.onChange(Number(val))}
+                  className="block-input"
+                />
+              )}
+            />
+            <Stack gap={4}>
+              <Text size="xs" fw={800} style={{ letterSpacing: "1px" }}>TOTAL (COMPUTED)</Text>
+              <Paper p="sm" style={{ border: '1px solid var(--echo-border)', backgroundColor: 'var(--echo-surface-2)' }}>
+                <Text fw={800}>{formatCurrency(computedTotal)}</Text>
+                <Text size="xs" c="dimmed" fw={500}>Labor + parts cost</Text>
+              </Paper>
+            </Stack>
+            <Controller
+              name="amount_paid"
+              control={form.control}
+              render={({ field }) => (
+                <NumberInput
+                  label="AMOUNT PAID"
+                  min={0}
+                  decimalScale={2}
+                  leftSection={CURRENCY_SYMBOL}
+                  value={field.value}
+                  onChange={(val) => field.onChange(Number(val))}
+                  className="block-input"
+                />
+              )}
+            />
+          </Group>
+          <Textarea
+            label="TECHNICIAN NOTES"
+            minRows={2}
+            {...form.register("technician_notes")}
+            className="block-input"
+          />
+          <Group justify="flex-end" mt="xl">
+            <Button
+              variant="light"
+              color="gray"
+              onClick={onClose}
+            >
+              CANCEL
+            </Button>
+            <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>
+              UPDATE REPAIR
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Create Repair Modal ──────────────────────────────────────────────────────
+
+function CreateRepairModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const form = useForm<RepairCreate>({
+    resolver: zodResolver(RepairCreateSchema) as Resolver<RepairCreate>,
     defaultValues: {
       customer_name: "",
       customer_phone: "",
       customer_email: "",
       phone_model: "",
       issue_description: "",
-      status: "pending" as const,
-      estimated_cost: 0,
-      estimated_days: 1,
-      notes: ""
-    }
+      technician_notes: "",
+      payment_status: "pending",
+      date_received: new Date().toISOString().split("T")[0],
+      estimated_completion: "",
+      labor_cost: 0,
+      amount_paid: 0,
+    },
   });
 
-  useEffect(() => {
-    if (data) {
-      setRepairs(data);
-      setFilteredRepairs(data);
-    }
-  }, [data]);
+  const laborCost = form.watch("labor_cost") || 0;
 
-  // Filter repairs based on search term
-  useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredRepairs(repairs);
-      return;
-    }
-
-    const lowercasedSearch = searchTerm.toLowerCase();
-    const filtered = repairs.filter(repair =>
-      repair.customer_name.toLowerCase().includes(lowercasedSearch) ||
-      repair.customer_phone.toLowerCase().includes(lowercasedSearch) ||
-      repair.phone_model.toLowerCase().includes(lowercasedSearch) ||
-      repair.repair_status.toLowerCase().includes(lowercasedSearch) ||
-      repair.issue_description.toLowerCase().includes(lowercasedSearch)
-    );
-
-    setFilteredRepairs(filtered);
-    setCurrentPage(1); // Reset to first page when searching
-  }, [searchTerm, repairs]);
-
-  // Calculate pagination
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredRepairs.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredRepairs.length / itemsPerPage);
-
-  // Pagination controls
-  const goToPage = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  const renderPagination = () => {
-    if (totalPages <= 1) return null;
-
-    return (
-      <div className="flex gap-2 items-center justify-center space-x-2 mt-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-        >
-          Previous
-        </Button>
-
-        <div className="flex gap-2 items-center space-x-1">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-            <Button
-              key={page}
-              variant={currentPage === page ? "default" : "outline"}
-              size="sm"
-              onClick={() => goToPage(page)}
-              className="w-8 h-8 p-0"
-            >
-              {page}
-            </Button>
-          ))}
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage === totalPages}
-        >
-          Next
-        </Button>
-      </div>
-    );
-  };
-
-  const handleSubmit = async (data: RepairCreate) => {
-    const url = editingRepair
-      ? `/api/repairs/${editingRepair.id}`
-      : "/api/repairs";
-
-    const method = editingRepair ? "PUT" : "POST";
-
+  const submit = async (data: RepairCreate) => {
     try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (response.ok) {
-        toast.success(editingRepair ? "Repair updated successfully!" : "Repair created successfully!");
-        setIsDialogOpen(false);
-        form.reset();
-        refetch();
-      } else {
-        const errorData = await response.json();
-        toast.error("Failed to save repair. Please try again.");
-        console.error("Error saving repair:", errorData);
-      }
-    } catch (error) {
-      console.error("Error saving repair:", error);
-      toast.error("Network error. Please check your connection and try again.");
+      const payload = {
+        ...data,
+        customer_email: data.customer_email === "" ? null : data.customer_email,
+        estimated_completion: data.estimated_completion === "" ? null : data.estimated_completion,
+      };
+      await repairsApi.create(payload);
+      toast.success("Repair created — status: Pending");
+      onCreated();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create repair");
     }
   };
-
-  const handleEdit = (repair: Repair) => {
-    setEditingRepair(repair);
-    form.reset({
-      customer_name: repair.customer_name,
-      customer_phone: repair.customer_phone,
-      customer_email: repair.customer_email || "",
-      phone_model: repair.phone_model,
-      issue_description: repair.issue_description,
-      status: repair.repair_status as "pending" | "in_progress" | "completed" | "cancelled",
-      estimated_cost: 0,
-      estimated_days: 1,
-      notes: ""
-    });
-    setIsDialogOpen(true);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this repair?")) {
-      try {
-        const response = await fetch(`/api/repairs/${id}`, {
-          method: "DELETE",
-        });
-
-        if (response.ok) {
-          refetch();
-        }
-      } catch (error) {
-        console.error("Error deleting repair:", error);
-      }
-    }
-  };
-
-  const resetForm = () => {
-    form.reset();
-    setEditingRepair(null);
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      pending: "secondary",
-      in_progress: "default",
-      completed: "default",
-      cancelled: "destructive"
-    } as const;
-
-    const icons = {
-      pending: Clock,
-      in_progress: Wrench,
-      completed: CheckCircle,
-      cancelled: CheckCircle
-    };
-
-    const Icon = icons[status as keyof typeof icons];
-
-    return (
-      <Badge variant={variants[status as keyof typeof variants]}>
-        <Icon className="h-3 w-3 mr-1" />
-        {status.replace('_', ' ')}
-      </Badge>
-    );
-  };
-
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <ErrorState
-          title="Error Loading Repairs"
-          description={`Failed to load repairs: ${error.message}`}
-          onRetry={refetch}
-          isRetrying={isRefreshing}
-        />
-      </div>
-    );
-  }
-
-  if (loading && !data) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <LoadingState
-          title="Repairs"
-          description="Loading your repair records..."
-          cardCount={3}
-          showCharts={false}
-        />
-      </div>
-    );
-  }
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <Modal opened onClose={onClose} title="New Repair" size="lg">
+      <form onSubmit={form.handleSubmit(submit)}>
+        <Stack gap="md">
+          <Group grow>
+            <TextInput
+              label="CUSTOMER NAME"
+              placeholder="John Doe"
+              required
+              {...form.register("customer_name")}
+              error={form.formState.errors.customer_name?.message}
+              className="block-input"
+            />
+            <TextInput
+              label="PHONE NUMBER"
+              placeholder="080..."
+              required
+              {...form.register("customer_phone")}
+              error={form.formState.errors.customer_phone?.message}
+              className="block-input"
+            />
+          </Group>
+          <Group grow>
+            <TextInput label="EMAIL (OPTIONAL)" placeholder="john@example.com" {...form.register("customer_email")} className="block-input" />
+            <TextInput
+              label="PHONE MODEL"
+              placeholder="iPhone 13 Pro"
+              required
+              {...form.register("phone_model")}
+              error={form.formState.errors.phone_model?.message}
+              className="block-input"
+            />
+          </Group>
+          <Textarea
+            label="ISSUE DESCRIPTION"
+            placeholder="Describe the problem..."
+            required
+            minRows={3}
+            {...form.register("issue_description")}
+            error={form.formState.errors.issue_description?.message}
+            className="block-input"
+          />
+          <Group grow align="flex-start">
+            <Controller
+              name="payment_status"
+              control={form.control}
+              render={({ field }) => (
+                <Select
+                  label="PAYMENT STATUS"
+                  data={[
+                    { value: "pending", label: "PENDING" },
+                    { value: "partial", label: "PARTIAL" },
+                    { value: "paid", label: "PAID" },
+                  ]}
+                  value={field.value}
+                  onChange={field.onChange}
+                  className="block-input"
+                />
+              )}
+            />
+            <Controller
+              name="estimated_completion"
+              control={form.control}
+              render={({ field }) => (
+                <DateInput
+                  label="EST. COMPLETION"
+                  placeholder="Pick date"
+                  value={field.value || null}
+                  onChange={(val: string | null) => {
+                    field.onChange(val ?? "");
+                  }}
+                  className="block-input"
+                />
+              )}
+            />
+          </Group>
+          <Group grow align="flex-start">
+            <Controller
+              name="labor_cost"
+              control={form.control}
+              render={({ field }) => (
+                <NumberInput
+                  label="LABOR COST"
+                  min={0}
+                  decimalScale={2}
+                  leftSection={CURRENCY_SYMBOL}
+                  value={field.value}
+                  onChange={(val) => field.onChange(Number(val))}
+                  className="block-input"
+                />
+              )}
+            />
+            <Stack gap={4}>
+              <Text size="xs" fw={800} style={{ letterSpacing: "1px" }}>TOTAL (ESTIMATED)</Text>
+              <Paper p="sm" style={{ border: '1px solid var(--echo-border)', backgroundColor: 'var(--echo-surface-2)' }}>
+                <Text fw={800}>{formatCurrency(laborCost)}</Text>
+                <Text size="xs" c="dimmed" fw={500}>Labor only — parts added after</Text>
+              </Paper>
+            </Stack>
+            <Controller
+              name="amount_paid"
+              control={form.control}
+              render={({ field }) => (
+                <NumberInput
+                  label="AMOUNT PAID"
+                  min={0}
+                  decimalScale={2}
+                  leftSection={CURRENCY_SYMBOL}
+                  value={field.value}
+                  onChange={(val) => field.onChange(Number(val))}
+                  className="block-input"
+                />
+              )}
+            />
+          </Group>
+          <Textarea
+            label="TECHNICIAN NOTES"
+            placeholder="Additional notes..."
+            minRows={2}
+            {...form.register("technician_notes")}
+            className="block-input"
+          />
+          <Group justify="flex-end" mt="xl">
+            <Button
+              variant="light"
+              color="gray"
+              onClick={onClose}
+            >
+              CANCEL
+            </Button>
+            <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>
+              CREATE REPAIR
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function Repairs() {
+  const { user } = useAuth();
+  const { data, loading, error, refetch } = useFetch<Repair[]>("/api/repairs");
+  const { data: products } = useFetch<Product[]>("/api/products?limit=1000");
+  const { isRefreshing, handleRefresh } = usePageState();
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const [modal, setModal] = useState<
+    | { type: "create" }
+    | { type: "edit"; repair: Repair }
+    | { type: "view"; repair: Repair }
+    | null
+  >(null);
+
+  const repairs = data ?? [];
+  const allProducts = products ?? [];
+
+  const filteredRepairs = useMemo(
+    () =>
+      repairs.filter(
+        (r) =>
+          r.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.customer_phone.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.phone_model.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.issue_description.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [repairs, searchTerm]
+  );
+
+  const paginatedItems = filteredRepairs.slice(
+    (activePage - 1) * itemsPerPage,
+    activePage * itemsPerPage
+  );
+  const totalPages = Math.ceil(filteredRepairs.length / itemsPerPage);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this repair? This cannot be undone.")) return;
+    try {
+      await apiRequest(`/api/repairs/${id}`, { method: "DELETE" });
+      toast.success("Repair deleted");
+      refetch();
+    } catch (err) {
+      toast.error("Failed to delete repair");
+    }
+  };
+
+  if (loading && !data) return <LoadingState message="Loading repair records..." />;
+  if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
+
+  return (
+    <Container size="xl" py="xl">
       <PageHeader
         title="Repairs"
         description="Manage customer repairs and service requests"
-        showRefresh={true}
+        showRefresh
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        children={
-          <div className="flex gap-2 space-x-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
-              <Input
-                type="search"
-                placeholder="Search repairs..."
-                className="pl-8 w-[200px] md:w-[300px]"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => resetForm()}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Repair
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingRepair ? "Edit Repair" : "New Repair"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingRepair ? "Update repair information" : "Create a new repair record"}
-                </DialogDescription>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="customer_name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Name *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter customer name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="customer_phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Phone *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter phone number" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="customer_email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Email</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="Enter email address" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="phone_model"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone Model *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter phone model" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+        onRefresh={() => handleRefresh(refetch)}
+      >
+        <Button onClick={() => setModal({ type: "create" })} leftSection={<Plus size={16} />}>
+          New Repair
+        </Button>
+      </PageHeader>
 
-                <FormField
-                  control={form.control}
-                  name="issue_description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Issue Description *</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Describe the issue" rows={3} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+      {/* Summary Cards */}
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg" mb="xl">
+        <Paper className="block-card" p="md">
+          <Group justify="space-between">
+            <Stack gap={0}>
+              <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                PENDING
+              </Text>
+              <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                {repairs.filter((r) => r.repair_status === "pending").length}
+              </Text>
+            </Stack>
+            <Clock size={24} color="black" />
+          </Group>
+        </Paper>
+        <Paper className="block-card" p="md">
+          <Group justify="space-between">
+            <Stack gap={0}>
+              <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                IN PROGRESS
+              </Text>
+              <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                {repairs.filter((r) => r.repair_status === "in_progress").length}
+              </Text>
+            </Stack>
+            <Wrench size={24} color="black" />
+          </Group>
+        </Paper>
+        <Paper className="block-card" p="md">
+          <Group justify="space-between">
+            <Stack gap={0}>
+              <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                COMPLETED
+              </Text>
+              <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                {repairs.filter((r) => r.repair_status === "completed").length}
+              </Text>
+            </Stack>
+            <CheckCircle size={24} color="black" />
+          </Group>
+        </Paper>
+        {(user?.role === 'manager' || user?.role === 'admin') ? (
+          <Paper className="block-card" p="md">
+            <Group justify="space-between">
+              <Stack gap={0}>
+                <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                  TOTAL REVENUE
+                </Text>
+                <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                  {formatCurrency(repairs.reduce((s, r) => s + (r.total_amount ?? 0), 0))}
+                </Text>
+              </Stack>
+              <DollarSign size={24} color="black" />
+            </Group>
+          </Paper>
+        ) : (
+          <Paper className="block-card" p="md">
+            <Group justify="space-between">
+              <Stack gap={0}>
+                <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                  CANCELLED
+                </Text>
+                <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                  {repairs.filter((r) => r.repair_status === "cancelled").length}
+                </Text>
+              </Stack>
+              <DollarSign size={24} color="black" />
+            </Group>
+          </Paper>
+        )}
+      </SimpleGrid>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Repair Status</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="in_progress">In Progress</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="cancelled">Cancelled</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="estimated_cost"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Estimated Cost</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0.00"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+      {/* Table */}
+      <Paper className="block-card" p={0} style={{ overflow: "hidden" }}>
+        <Box p="md" style={{ borderBottom: '1px solid var(--echo-border)' }}>
+          <TextInput
+            placeholder="Search repairs..."
+            leftSection={<Search size={16} />}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ maxWidth: 400 }}
+            className="block-input"
+          />
+        </Box>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="estimated_days"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Estimated Days</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            placeholder="1"
-                            {...field}
-                            onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="notes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes</FormLabel>
-                        <FormControl>
-                          <Textarea placeholder="Additional notes" rows={2} {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">
-                    {editingRepair ? "Update" : "Create"} Repair
-                  </Button>
-                </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-          </div>
-        }
-      />
-
-      {/* Overview Panels */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <Card>
-          <CardHeader className="flex gap-2 flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Repairs</CardTitle>
-            <Wrench className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{repairs.length}</div>
-            <p className="text-xs text-muted-foreground">
-              All repair records
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex gap-2 flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Repairs</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {repairs.filter(r => r.repair_status === "pending").length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Awaiting service
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex gap-2 flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed Repairs</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {repairs.filter(r => r.repair_status === "completed").length}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Successfully completed
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex gap-2 flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-            <div className="h-4 w-4 text-muted-foreground">💰</div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ${repairs.reduce((sum, r) => sum + (r.estimated_cost || 0), 0).toFixed(2)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              From estimated costs
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Repair Records</CardTitle>
-          <CardDescription>
-            {filteredRepairs.length} repair records found {searchTerm && `for "${searchTerm}"`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Customer</TableHead>
-                <TableHead>Phone Model</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Estimated Cost</TableHead>
-                <TableHead>Estimated Days</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {currentItems.map((repair) => (
-                <TableRow key={repair.id}>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">{repair.customer_name}</div>
-                      <div className="text-sm text-gray-500">{repair.customer_phone}</div>
-                    </div>
-                  </TableCell>
-                  <TableCell>{repair.phone_model}</TableCell>
-                  <TableCell>{getStatusBadge(repair.repair_status)}</TableCell>
-                  <TableCell>
-                    ${(repair.estimated_cost || 0).toFixed(2)}
-                  </TableCell>
-                  <TableCell>
-                    {repair.estimated_days || 1} days
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => handleEdit(repair)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleDelete(repair.id)}
-                          className="text-red-600"
+        <Table verticalSpacing="sm" style={{ borderCollapse: "collapse" }}>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Customer</Table.Th>
+              <Table.Th>Device</Table.Th>
+              <Table.Th>Repair Status</Table.Th>
+              <Table.Th>Payment</Table.Th>
+              <Table.Th>Total</Table.Th>
+              <Table.Th>Due</Table.Th>
+              <Table.Th>Actions</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {paginatedItems.length === 0 ? (
+              <Table.Tr>
+                <Table.Td colSpan={7}>
+                  <Text size="sm" color="dimmed" fw={600} ta="center" py="xl">
+                    No repairs found
+                  </Text>
+                </Table.Td>
+              </Table.Tr>
+            ) : (
+              paginatedItems.map((repair) => (
+                <Table.Tr key={repair.id}>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={800}>{repair.customer_name}</Text>
+                    <Text size="xs" color="dimmed" fw={500}>{repair.customer_phone}</Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={700}>{repair.phone_model}</Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <StatusBadge status={repair.repair_status} />
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <PaymentBadge status={repair.payment_status} />
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={800}>{formatCurrency(repair.total_amount)}</Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={700}>
+                      {repair.estimated_completion
+                        ? new Date(repair.estimated_completion).toLocaleDateString()
+                        : "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Menu position="bottom-end">
+                      <Menu.Target>
+                        <ActionIcon variant="subtle" color="dark">
+                          <MoreVertical size={16} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<Eye size={14} />}
+                          onClick={() => setModal({ type: "view", repair })}
+                          fw={700}
                         >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {renderPagination()}
-        </CardContent>
-      </Card>
-    </div>
+                          View / Manage
+                        </Menu.Item>
+                        <Menu.Item
+                          leftSection={<Package size={14} />}
+                          onClick={() => setModal({ type: "edit", repair })}
+                          fw={700}
+                        >
+                          Edit Details
+                        </Menu.Item>
+                        {user?.role === "admin" && (
+                          <Menu.Item
+                            color="red"
+                            leftSection={<Trash2 size={14} />}
+                            onClick={() => handleDelete(repair.id)}
+                            fw={700}
+                          >
+                            Delete
+                          </Menu.Item>
+                        )}
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Table.Td>
+                </Table.Tr>
+              ))
+            )}
+          </Table.Tbody>
+        </Table>
+
+        {totalPages > 1 && (
+          <Group justify="center" p="md">
+            <Pagination total={totalPages} value={activePage} onChange={setPage} />
+          </Group>
+        )}
+      </Paper>
+
+      {/* Modals */}
+      {modal?.type === "create" && (
+        <CreateRepairModal
+          onClose={() => setModal(null)}
+          onCreated={refetch}
+        />
+      )}
+      {modal?.type === "edit" && (
+        <EditRepairModal
+          repair={modal.repair}
+          onClose={() => setModal(null)}
+          onSaved={refetch}
+        />
+      )}
+      {modal?.type === "view" && (
+        <RepairDetailModal
+          repair={modal.repair}
+          products={allProducts}
+          onClose={() => setModal(null)}
+          onMutated={refetch}
+        />
+      )}
+    </Container>
   );
 }

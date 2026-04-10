@@ -1,29 +1,27 @@
-import React, { useState } from "react";
-import { useParams, Link } from "react-router";
-import { useFetch } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import React, { useEffect, useState } from "react";
+import { useFetch, apiRequest } from "@/lib/api";
+import { useAuth } from "../contexts/AuthContext";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import Container from "@/components/Container";
-import PageHeader from "@/components/PageHeader";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
+  Button,
+  Card,
+  Badge,
+  TextInput,
+  Textarea,
+  Group,
+  Title,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  ActionIcon,
+  Menu,
+  Modal,
+  Box,
+  Paper
+} from "@mantine/core";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
 import {
   Plus,
@@ -34,39 +32,26 @@ import {
   Search,
   Settings
 } from "lucide-react";
-import { ProductCategory, ProductSubcategory } from "@/types";
+import { Link, useParams } from "react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ProductSubcategoryCreateSchema, ProductSubcategoryUpdateSchema, type ProductSubcategoryCreate, type ProductSubcategoryUpdate } from "@/lib/schemas";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { toast } from "sonner";
-
-interface ProductAttributeDefinition {
-  id: string;
-  name: string;
-  display_name: string;
-  data_type: string;
-  required: boolean;
-  default_value?: string;
-  options?: string;
-  unit?: string;
-  order: number;
-  is_active: boolean;
-}
+import { toast } from "../components/Toast";
+import { ProductCategory, ProductSubcategory } from "@/types";
+import { ProductSubcategoryCreateSchema, type ProductSubcategoryCreate } from "@/lib/schemas";
 
 export default function Subcategories() {
   const { categoryId } = useParams<{ categoryId: string }>();
+  const { user } = useAuth();
   const { data: category, loading: categoryLoading, error: categoryError } = useFetch<ProductCategory>(`/api/categories/${categoryId}`);
   const { data: subcategories, loading: subcategoriesLoading, error: subcategoriesError, refetch } = useFetch<ProductSubcategory[]>(`/api/categories/${categoryId}/subcategories`);
   const { isRefreshing, handleRefresh } = usePageState();
 
   const [searchTerm, setSearchTerm] = useState("");
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
   const [selectedSubcategory, setSelectedSubcategory] = useState<ProductSubcategory | null>(null);
 
-  // React Hook Form with Zod validation
-  const createForm = useForm<ProductSubcategoryCreate>({
+  const form = useForm<ProductSubcategoryCreate>({
     resolver: zodResolver(ProductSubcategoryCreateSchema),
     defaultValues: {
       name: "",
@@ -76,94 +61,93 @@ export default function Subcategories() {
     }
   });
 
-  const editForm = useForm<ProductSubcategoryUpdate>({
-    resolver: zodResolver(ProductSubcategoryUpdateSchema),
-    defaultValues: {
-      name: "",
-      description: "",
-      icon: ""
-    }
-  });
-
   const handleCreateSubcategory = async (data: ProductSubcategoryCreate) => {
     try {
-      const response = await fetch(`/api/categories/${categoryId}/subcategories`, {
+      // Sanitize data
+      const submissionData = {
+        ...data,
+        description: data.description === "" ? null : data.description,
+        icon: data.icon === "" ? null : data.icon
+      };
+
+      await apiRequest(`/api/categories/${categoryId}/subcategories`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
-      if (response.ok) {
-        toast.success("Subcategory created successfully!");
-        refetch();
-        setIsCreateDialogOpen(false);
-        createForm.reset();
-      } else {
-        const errorData = await response.json();
-        toast.error("Failed to create subcategory. Please try again.");
-        console.error("Error creating subcategory:", errorData);
-      }
-    } catch (error) {
+      toast.success("Subcategory created successfully!");
+      refetch();
+      setIsModalOpen(false);
+      form.reset();
+    } catch (error: unknown) {
       console.error("Error creating subcategory:", error);
-      toast.error("Network error. Please check your connection and try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to create subcategory. Please try again.");
     }
   };
 
-  const handleEditSubcategory = async (data: ProductSubcategoryUpdate) => {
+  const handleEditSubcategory = async (data: ProductSubcategoryCreate) => {
     if (!selectedSubcategory) return;
 
     try {
-      const response = await fetch(`/api/categories/subcategories/${selectedSubcategory.id}`, {
+      // Sanitize data
+      const submissionData = {
+        ...data,
+        description: data.description === "" ? null : data.description,
+        icon: data.icon === "" ? null : data.icon
+      };
+
+      await apiRequest(`/api/categories/subcategories/${selectedSubcategory.id}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
-      if (response.ok) {
-        toast.success("Subcategory updated successfully!");
-        refetch();
-        setIsEditDialogOpen(false);
-        editForm.reset();
-        setSelectedSubcategory(null);
-      } else {
-        const errorData = await response.json();
-        toast.error("Failed to update subcategory. Please try again.");
-        console.error("Error updating subcategory:", errorData);
-      }
-    } catch (error) {
+      toast.success("Subcategory updated successfully!");
+      refetch();
+      setIsModalOpen(false);
+      setSelectedSubcategory(null);
+    } catch (error: unknown) {
       console.error("Error updating subcategory:", error);
-      toast.error("Network error. Please check your connection and try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to update subcategory. Please try again.");
     }
+  };
+
+  const openCreateModal = () => {
+    setIsEditMode(false);
+    setSelectedSubcategory(null);
+    form.reset({
+      name: "",
+      category_id: categoryId || "",
+      description: "",
+      icon: ""
+    });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (subcategory: ProductSubcategory) => {
+    setIsEditMode(true);
+    setSelectedSubcategory(subcategory);
+    form.reset({
+      name: subcategory.name,
+      category_id: categoryId || "",
+      description: subcategory.description || "",
+      icon: subcategory.icon || ""
+    });
+    setIsModalOpen(true);
   };
 
   const handleDeleteSubcategory = async (subcategoryId: string) => {
     if (!confirm("Are you sure you want to delete this subcategory?")) return;
 
     try {
-      const response = await fetch(`/api/categories/subcategories/${subcategoryId}`, {
+      await apiRequest(`/api/categories/subcategories/${subcategoryId}`, {
         method: "DELETE",
       });
-
-      if (response.ok) {
-        refetch();
-      }
-    } catch (error) {
+      toast.success("Subcategory deleted successfully!");
+      refetch();
+    } catch (error: unknown) {
       console.error("Failed to delete subcategory:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to delete subcategory. Please try again.");
     }
-  };
-
-  const openEditDialog = (subcategory: ProductSubcategory) => {
-    setSelectedSubcategory(subcategory);
-    editForm.reset({
-      name: subcategory.name,
-      description: subcategory.description || "",
-      icon: subcategory.icon || ""
-    });
-    setIsEditDialogOpen(true);
   };
 
   const filteredSubcategories = subcategories?.filter(subcategory =>
@@ -171,267 +155,125 @@ export default function Subcategories() {
     (subcategory.description && subcategory.description.toLowerCase().includes(searchTerm.toLowerCase()))
   ) || [];
 
-  if (categoryError || subcategoriesError) {
-    return (
-      <Container>
-        <ErrorState
-          title="Error Loading Subcategories"
-          description={`Failed to load subcategories: ${(categoryError || subcategoriesError)?.message}`}
-          onRetry={() => {
-            refetch();
-          }}
-          isRetrying={isRefreshing}
-        />
-      </Container>
-    );
-  }
-
-  if (categoryLoading || subcategoriesLoading) {
-    return (
-      <Container>
-        <LoadingState
-          title="Subcategories"
-          description="Loading subcategories..."
-          cardCount={3}
-          showCharts={false}
-        />
-      </Container>
-    );
-  }
+  if (categoryLoading || subcategoriesLoading) return <LoadingState message="Loading subcategories..." />;
+  if (categoryError || subcategoriesError) return <ErrorDisplay message={(categoryError || subcategoriesError)?.message} onRetry={refetch} />;
 
   return (
-    <div className="container mx-auto px-4 py-4 sm:py-8">
+    <Container size="xl" py="xl">
       <PageHeader
         title={`${category?.name || 'Category'} Subcategories`}
         description={`Manage subcategories for ${category?.name || 'this category'}`}
         showRefresh={true}
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        children={
-          <div className="flex gap-2 space-x-2">
-            <Button variant="outline" asChild>
-              <Link to="/categories">
-                Back to Categories
-              </Link>
-            </Button>
-            <Button onClick={() => setIsCreateDialogOpen(true)}>
-              <Plus className="w-4 h-4 mr-2" />
+        onRefresh={() => handleRefresh(refetch)}
+        showBack={true}
+        onBack={() => window.history.back()}
+      >
+        <Group>
+          <Button variant="light" color="gray" component={Link} to="/categories" leftSection={<ArrowLeft size={16} />}>
+            Back to Categories
+          </Button>
+          {(user?.role === 'admin' || user?.role === 'manager') && (
+            <Button onClick={openCreateModal} leftSection={<Plus size={16} />} className="block-button">
               Create Subcategory
             </Button>
-          </div>
-        }
-      />
+          )}
+        </Group>
+      </PageHeader>
 
-      <div className="space-y-6">
-        {/* Search Bar */}
-        <div className="flex gap-4 flex-col sm:flex-row mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search subcategories..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-        </div>
+      <Stack gap="lg">
+        <TextInput
+          placeholder="Search subcategories..."
+          leftSection={<Search size={16} />}
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          style={{ maxWidth: 400 }}
+          className="block-input"
+        />
 
-        {/* Subcategories Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
           {filteredSubcategories.map((subcategory) => (
-            <Card key={subcategory.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex gap-2 items-center justify-between">
-                  <CardTitle className="flex gap-2 items-center space-x-2 text-lg">
-                    {subcategory.icon && <span className="text-2xl">{subcategory.icon}</span>}
-                    <span>{subcategory.name}</span>
-                  </CardTitle>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link to={`/subcategories/${subcategory.id}/attributes`}>
-                          <Settings className="w-4 h-4 mr-2" />
-                          Manage Attributes
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => openEditDialog(subcategory)}>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteSubcategory(subcategory.id)}
-                        className="text-red-600"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-                  {subcategory.description || "No description available"}
-                </p>
-                <div className="flex gap-2 items-center justify-between">
-                  <Badge variant="default">
-                    Active
-                  </Badge>
-                </div>
-              </CardContent>
+            <Card key={subcategory.id} className="block-card" padding="lg">
+              <Group justify="space-between" mb="xs">
+                <Group gap="sm">
+                  {subcategory.icon && <Text size="xl">{subcategory.icon}</Text>}
+                  <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{subcategory.name}</Title>
+                </Group>
+                <Menu position="bottom-end">
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="dark"><MoreVertical size={16} /></ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item leftSection={<Settings size={14} />} component={Link} to={`/subcategories/${subcategory.id}/attributes`} fw={700}>
+                      Manage Attributes
+                    </Menu.Item>
+                    {(user?.role === 'admin' || user?.role === 'manager') && (
+                      <Menu.Item leftSection={<Edit size={14} />} onClick={() => openEditModal(subcategory)} fw={700}>Edit</Menu.Item>
+                    )}
+                    {user?.role === 'admin' && (
+                      <Menu.Item color="black" leftSection={<Trash2 size={14} />} onClick={() => handleDeleteSubcategory(subcategory.id)} fw={700} style={{ background: '#fff0f0' }}>Delete</Menu.Item>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+              </Group>
+
+              <Text size="sm" color="dimmed" mb="md" lineClamp={2} fw={500}>
+                {subcategory.description || "No description available"}
+              </Text>
+
+              <Badge color="dark" variant="outline" style={{ borderRadius: 0, border: '1px solid black' }}>Active</Badge>
             </Card>
           ))}
-        </div>
+        </SimpleGrid>
 
         {filteredSubcategories.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <Settings className="w-16 h-16 mx-auto" />
-            </div>
-            <p className="text-gray-500 mb-2">No subcategories found</p>
-            <p className="text-sm text-gray-400 mb-4">
-              {searchTerm ? "Try adjusting your search terms" : "Create your first subcategory to get started"}
-            </p>
-            {!searchTerm && (
-              <Button onClick={() => setIsCreateDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Create Subcategory
-              </Button>
-            )}
-          </div>
+          <Paper withBorder p="xl" radius="md">
+            <Stack align="center" gap="xs">
+              <Settings size={48} color="gray" />
+              <Text color="dimmed">No subcategories found</Text>
+              {!searchTerm && (
+                <Button onClick={openCreateModal} variant="outline" mt="md">
+                  Create your first subcategory
+                </Button>
+              )}
+            </Stack>
+          </Paper>
         )}
-      </div>
+      </Stack>
 
-      {/* Create Subcategory Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create New Subcategory</DialogTitle>
-            <DialogDescription>
-              Add a new subcategory under the {category?.name} category.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...createForm}>
-            <form onSubmit={createForm.handleSubmit(handleCreateSubcategory)} className="space-y-4">
-              <FormField
-                control={createForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter subcategory name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Enter subcategory description" rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={createForm.control}
-                name="icon"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Icon</FormLabel>
-                    <FormControl>
-                      <Input placeholder="📱" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex gap-2 justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={!createForm.formState.isValid}>
-                  Create Subcategory
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Subcategory Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Subcategory</DialogTitle>
-            <DialogDescription>
-              Update the subcategory information below.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...editForm}>
-            <form onSubmit={editForm.handleSubmit(handleEditSubcategory)} className="space-y-4">
-              <FormField
-                control={editForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter subcategory name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Enter subcategory description" rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={editForm.control}
-                name="icon"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Icon</FormLabel>
-                    <FormControl>
-                      <Input placeholder="📱" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex gap-2 justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={!editForm.formState.isValid}>
-                  Update Subcategory
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </div>
+      <Modal opened={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditMode ? "Edit Subcategory" : "Create New Subcategory"} centered>
+        <form onSubmit={form.handleSubmit(isEditMode ? handleEditSubcategory : handleCreateSubcategory)}>
+          <Stack gap="md">
+            <TextInput
+              label="Name"
+              placeholder="Enter subcategory name"
+              required
+              {...form.register("name")}
+              error={form.formState.errors.name?.message}
+              className="block-input"
+            />
+            <Textarea
+              label="Description"
+              placeholder="Enter subcategory description"
+              minRows={3}
+              {...form.register("description")}
+              className="block-input"
+            />
+            <TextInput
+              label="Icon"
+              placeholder="📱"
+              {...form.register("icon")}
+              className="block-input"
+            />
+            <Group justify="flex-end" mt="xl">
+              <Button variant="light" color="gray" onClick={() => setIsModalOpen(false)}>CANCEL</Button>
+              <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>
+                {isEditMode ? "UPDATE SUBCATEGORY" : "CREATE SUBCATEGORY"}
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    </Container>
   );
 }

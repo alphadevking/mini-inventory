@@ -7,12 +7,6 @@ Welcome to the Mini Inventory System documentation! This folder contains all the
 ### 🚀 [Server Startup Guide](./STARTUP.md)
 Complete guide for starting both backend and frontend servers with various startup scripts.
 
-### 🗄️ [Neon Database Setup](./NEON_SETUP.md)
-Step-by-step guide for setting up Neon PostgreSQL database for production.
-
-### 📋 [Project Plan](./PROJECT_PLAN.md)
-Detailed project planning and development roadmap.
-
 ### 📝 [Meta Plan](./meta_plan.md)
 Project metadata and planning information.
 

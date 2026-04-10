@@ -1,102 +1,95 @@
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { Plus, ArrowLeft, RefreshCw } from "lucide-react";
-import { Link } from "react-router";
-import { cn } from "@/lib/utils";
+import React from 'react';
+import { Button, Group, Text, Title, Stack, Box } from '@mantine/core';
+import { ArrowLeft, RefreshCw } from "lucide-react";
 
 interface PageHeaderProps {
   title: string;
   description?: string;
-  action?: {
-    label: string;
-    onClick: () => void;
-    icon?: React.ReactNode;
-  };
-  backButton?: {
-    label: string;
-    to: string;
-  };
-  showRefresh?: boolean;
-  isRefreshing?: boolean;
+  onBack?: () => void;
   onRefresh?: () => void;
-  showDateRange?: boolean;
-  dateRange?: {
-    from: Date;
-    to: Date;
-  };
-  onDateRangeChange?: (range: { from: Date; to: Date }) => void;
+  isRefreshing?: boolean;
+  showRefresh?: boolean;
+  showBack?: boolean;
   children?: React.ReactNode;
-  className?: string;
 }
 
-export default function PageHeader({
+export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
   description,
-  action,
-  backButton,
-  showRefresh = false,
-  isRefreshing = false,
+  onBack,
   onRefresh,
-  showDateRange = false,
-  dateRange,
-  onDateRangeChange,
+  isRefreshing = false,
+  showRefresh = false,
+  showBack = false,
   children,
-  className
-}: PageHeaderProps) {
+}) => {
   return (
-    <div className={cn(
-      "bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50 shadow-sm",
-      className
-    )}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
-          <div className="flex items-center gap-4">
-            {backButton && (
-              <Link to={backButton.to}>
-                <Button variant="ghost" size="sm" className="flex items-center gap-2 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all duration-200">
-                  <ArrowLeft className="w-4 h-4" />
-                  <span className="hidden sm:inline">{backButton.label}</span>
-                </Button>
-              </Link>
-            )}
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700 dark:from-white dark:via-gray-100 dark:to-gray-300 bg-clip-text text-transparent">
-                {title}
-              </h1>
-              {description && (
-                <p className="mt-2 text-base text-gray-600 dark:text-gray-400 leading-relaxed">
-                  {description}
-                </p>
-              )}
-            </div>
-          </div>
+    <Stack gap="xs" mb="xl">
+      <Group justify="space-between" align="flex-start">
+        <Stack gap={6}>
+          {showBack && (
+            <Button
+              variant="subtle"
+              size="xs"
+              color="gray"
+              leftSection={<ArrowLeft size={14} />}
+              onClick={onBack}
+              p={0}
+              h="auto"
+              mb={2}
+              fw={500}
+              style={{ color: 'var(--echo-text-2)' }}
+            >
+              Back
+            </Button>
+          )}
+          <Title
+            order={1}
+            fw={800}
+            style={{
+              fontFamily: "'Manrope', sans-serif",
+              letterSpacing: '-0.04em',
+              fontSize: '2rem',
+              color: 'var(--echo-text)',
+            }}
+          >
+            {title}
+          </Title>
+          {description && (
+            <Text size="sm" style={{ color: 'var(--echo-text-2)' }}>
+              {description}
+            </Text>
+          )}
+        </Stack>
 
-          <div className="flex items-center gap-4">
-            {showRefresh && onRefresh && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onRefresh}
-                disabled={isRefreshing}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-            )}
-            {action && (
-              <Button
-                onClick={action.onClick}
-                className="flex items-center gap-2 w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-              >
-                {action.icon || <Plus className="w-4 h-4" />}
-                {action.label}
-              </Button>
-            )}
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
+        <Group align="center" gap="sm">
+          {showRefresh && onRefresh && (
+            <Button
+              variant="light"
+              color="gray"
+              size="sm"
+              leftSection={<RefreshCw size={15} className={isRefreshing ? 'animate-spin' : ''} />}
+              onClick={onRefresh}
+              loading={isRefreshing}
+              style={{ color: 'var(--echo-text-2)' }}
+            >
+              Refresh
+            </Button>
+          )}
+          {children}
+        </Group>
+      </Group>
+
+      {/* Gradient accent line */}
+      <Box
+        style={{
+          height: '2px',
+          width: '48px',
+          background: 'linear-gradient(90deg, var(--echo-amber), transparent)',
+          borderRadius: 'var(--echo-radius-pill)',
+          marginTop: 2,
+        }}
+      />
+    </Stack>
   );
-}
+};

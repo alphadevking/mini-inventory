@@ -1,18 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
-import { LoadingState } from '@/components/ui/loading-state';
-import { ErrorState } from '@/components/ui/error-state';
-import { PageHeader } from '@/components/ui/page-header';
-import { MetricCard } from '@/components/ui/metric-card';
-import { usePageState } from '@/hooks/usePageState';
+import React from 'react';
+import {
+  Card,
+  Group,
+  Title,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  Table,
+  Badge,
+  Tabs,
+  Progress,
+  Paper,
+  Box,
+  SimpleGrid as MantineSimpleGrid,
+  Select
+} from "@mantine/core";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, AreaChart, Area,
@@ -20,34 +23,17 @@ import {
 } from 'recharts';
 import { useFetch } from '@/lib/api';
 import {
-  Calendar, TrendingUp, DollarSign, Package, AlertTriangle, Users, ShoppingCart,
-  Activity, Target, Zap, Award, Clock, CheckCircle, TrendingDown, ArrowUpRight,
-  ArrowDownRight, Minus, RefreshCw
+  DollarSign, Package, AlertTriangle, TrendingUp,
+  BarChart as BarChartIcon, Activity, PieChart as PieChartIcon, Calendar
 } from 'lucide-react';
-
-interface DashboardStats {
-  total_products: number;
-  low_stock_products: number;
-  total_repairs: number;
-  pending_repairs: number;
-  completed_repairs: number;
-  total_transactions: number;
-  total_expenses: number;
-  monthly_revenue: number;
-  monthly_profit: number;
-}
-
-interface FinancialSummary {
-  total_revenue: number;
-  total_cogs: number;
-  total_gross_profit: number;
-  total_transport_other_costs: number;
-  total_expenses: number;
-  total_repair_revenue: number;
-  total_repair_costs: number;
-  net_profit: number;
-  profit_margin: number;
-}
+import { useAuth } from '../contexts/AuthContext';
+import { formatCurrency, formatNumber, formatCurrencyShort } from "@/lib/utils";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
+import { MetricCard } from "@/components/MetricCard";
+import { usePageState } from "@/hooks/usePageState";
+import type { DashboardStats, FinancialSummary } from "@/types";
 
 interface SalesTrend {
   date: string;
@@ -93,55 +79,29 @@ interface ExpenseBreakdown {
   }>;
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
-
-// Utility functions for calculations
-const formatCurrency = (amount: number): string => {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
-
-const formatNumber = (num: number): string => {
-  return new Intl.NumberFormat('en-US').format(num);
-};
+const COLORS = ['#228be6', '#0ca678', '#fd7e14', '#fa5252', '#4c6ef5']; // blue, teal, orange, red, indigo
 
 const calculatePercentage = (value: number, total: number): number => {
   if (total === 0) return 0;
   return Math.round((value / total) * 100);
 };
 
-const getTrendIcon = (value: number) => {
-  if (value > 0) return <ArrowUpRight className="h-4 w-4 text-green-500" />;
-  if (value < 0) return <ArrowDownRight className="h-4 w-4 text-red-500" />;
-  return <Minus className="h-4 w-4 text-gray-500" />;
-};
-
-const getTrendColor = (value: number) => {
-  if (value > 0) return 'text-green-600';
-  if (value < 0) return 'text-red-600';
-  return 'text-gray-600';
-};
-
 const Analytics: React.FC = () => {
+  const { user } = useAuth();
   const { isRefreshing, dateRange, startDate, endDate, handleRefresh, handleDateRangeChange } = usePageState();
 
-  // API calls with error handling
-  const { data: dashboardStats, loading: statsLoading, error: statsError } = useFetch<DashboardStats>('/api/analytics/dashboard/stats');
-  const { data: financialSummary, loading: financialLoading, error: financialError } = useFetch<FinancialSummary>(
+  const { data: dashboardStats, loading: statsLoading, error: statsError, refetch: refetchStats } = useFetch<DashboardStats>('/api/analytics/dashboard/stats');
+  const { data: financialSummary, loading: financialLoading, error: financialError, refetch: refetchFinancial } = useFetch<FinancialSummary>(
     startDate && endDate ? `/api/analytics/financial-summary?start_date=${startDate}&end_date=${endDate}` : null
   );
-  const { data: salesTrends, loading: trendsLoading, error: trendsError } = useFetch<{ daily_trends: SalesTrend[]; weekly_trends: SalesTrend[] }>(`/api/analytics/sales/trends?days=${dateRange}`);
-  const { data: inventoryAnalysis, loading: inventoryLoading, error: inventoryError } = useFetch<{
+  const { data: salesTrends, loading: trendsLoading, error: trendsError, refetch: refetchTrends } = useFetch<{ daily_trends: SalesTrend[]; weekly_trends: SalesTrend[] }>(`/api/analytics/sales/trends?days=${dateRange}`);
+  const { data: inventoryAnalysis, loading: inventoryLoading, error: inventoryError, refetch: refetchInventory } = useFetch<{
     total_products: number;
-    total_inventory_value: number;
+    total_inventory_value_at_cost: number;
     low_stock_products: number;
-    low_stock_value: number;
-    category_analysis: Record<string, { count: number; value: number; stock: number }>;
-    top_products_by_value: Array<[string, number]>;
+    low_stock_value_at_cost: number;
+    category_breakdown: Record<string, { count: number; value_at_cost: number; stock: number }>;
+    top_products_by_value: Array<{ name: string; value_at_cost: number }>;
   }>('/api/analytics/inventory/analysis');
   const { data: topProducts, loading: topProductsLoading, error: topProductsError } = useFetch<TopProduct[]>(
     startDate && endDate ? `/api/analytics/products/top-selling?limit=10&start_date=${startDate}&end_date=${endDate}` : null
@@ -156,379 +116,292 @@ const Analytics: React.FC = () => {
     startDate && endDate ? `/api/analytics/expenses/breakdown?start_date=${startDate}&end_date=${endDate}` : null
   );
 
-
-  // Calculate derived metrics
   const totalLoading = statsLoading || financialLoading || inventoryLoading;
   const hasErrors = statsError || financialError || inventoryError;
 
-  // Enhanced calculations
-  const inventoryValue = inventoryAnalysis?.total_inventory_value || 0;
-  const lowStockPercentage = inventoryAnalysis ?
-    calculatePercentage(inventoryAnalysis.low_stock_products, inventoryAnalysis.total_products) : 0;
+  if (totalLoading) return <LoadingState message="Loading your business insights..." />;
+  if (hasErrors) return <ErrorDisplay message="Failed to load analytics data" onRetry={() => handleRefresh(refetchStats, refetchFinancial, refetchInventory)} />;
 
-  const profitMargin = financialSummary?.profit_margin || 0;
-  const revenue = financialSummary?.total_revenue || 0;
-  const expenses = financialSummary?.total_expenses || 0;
-  const netProfit = financialSummary?.net_profit || 0;
-
-  // Enhanced loading state
-  if (totalLoading) {
-    return (
-      <LoadingState
-        title="Analytics Dashboard"
-        description="Loading your business insights..."
-        cardCount={4}
-        showCharts={true}
-      />
-    );
-  }
-
-  // Error state
-  if (hasErrors) {
-    return (
-      <ErrorState
-        title="Error Loading Analytics"
-        description="There was an error loading your analytics data."
-        onRetry={handleRefresh}
-        isRetrying={isRefreshing}
-      />
-    );
-  }
+  const salesRevenue = financialSummary?.sales_revenue ?? 0;
+  const repairRevenue = financialSummary?.repair_revenue ?? 0;
+  const revenue = salesRevenue + repairRevenue;
+  const inventoryValue = financialSummary?.inventory_value_at_cost ?? inventoryAnalysis?.total_inventory_value_at_cost ?? 0;
+  const lowStockPercentage = inventoryAnalysis ? calculatePercentage(inventoryAnalysis.low_stock_products, inventoryAnalysis.total_products) : 0;
+  const profitMargin = financialSummary?.profit_margin ?? 0;
 
   return (
-    <div className="container mx-auto px-4 py-4 sm:py-8 space-y-6">
+    <Container size="xl" py="xl">
       <PageHeader
-        title="Analytics Dashboard"
-        description="Comprehensive business insights and analytics"
+        title={`Analytics Dashboard`}
+        description={`Welcome, ${user?.full_name || 'User'}. Visualize your business performance.`}
         showRefresh={true}
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        showDateRange={true}
-        dateRange={dateRange}
-        onDateRangeChange={handleDateRangeChange}
-      />
+        onRefresh={() => handleRefresh(refetchStats, refetchFinancial, refetchTrends, refetchInventory)}
+      >
+        <Select
+          placeholder="Filter by range"
+          data={[
+            { value: '7', label: 'Last 7 Days' },
+            { value: '30', label: 'Last 30 Days' },
+            { value: '90', label: 'Last 90 Days' }
+          ]}
+          value={dateRange.toString()}
+          onChange={(val) => handleDateRangeChange(val || '30')}
+          style={{ width: 180 }}
+          className="block-input"
+        />
+      </PageHeader>
 
-      {/* Key Metrics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg" mb="xl">
         <MetricCard
           title="Total Revenue"
           value={formatCurrency(revenue)}
-          subtitle={`${formatCurrency(dashboardStats?.monthly_revenue || 0)} this month`}
+          description={`${formatCurrency(dashboardStats?.monthly_revenue || 0)} this month`}
           icon={DollarSign}
-          borderColor="border-l-blue-500"
-          iconColor="text-blue-500"
+          color="indigo"
         />
-
         <MetricCard
           title="Inventory Value"
           value={formatCurrency(inventoryValue)}
-          subtitle={`${formatNumber(dashboardStats?.total_products || 0)} products`}
+          description={`${formatNumber(dashboardStats?.total_products || 0)} products`}
           icon={Package}
-          borderColor="border-l-green-500"
-          iconColor="text-green-500"
+          color="blue"
         />
-
         <MetricCard
           title="Low Stock Alert"
           value={formatNumber(dashboardStats?.low_stock_products || 0)}
           progress={lowStockPercentage}
-          progressLabel={`${lowStockPercentage}%`}
           icon={AlertTriangle}
-          borderColor="border-l-orange-500"
-          iconColor="text-orange-500"
-          valueColor="text-orange-600"
+          color="orange"
         />
-
         <MetricCard
           title="Profit Margin"
           value={`${profitMargin.toFixed(1)}%`}
-          subtitle={`${formatCurrency(netProfit)} net profit`}
+          description={`${formatCurrency(financialSummary?.net_profit || 0)} net profit`}
           icon={TrendingUp}
-          borderColor="border-l-purple-500"
-          iconColor="text-purple-500"
+          color="teal"
         />
-      </div>
+      </SimpleGrid>
 
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="sales">Sales Analytics</TabsTrigger>
-          <TabsTrigger value="inventory">Inventory</TabsTrigger>
-          <TabsTrigger value="financial">Financial</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="overview" mb="xl">
+        <Tabs.List style={{ borderBottom: '1px solid var(--echo-border)' }}>
+          <Tabs.Tab value="overview" leftSection={<Activity size={14} />} fw={700}>Overview</Tabs.Tab>
+          <Tabs.Tab value="sales" leftSection={<BarChartIcon size={14} />} fw={700}>Sales</Tabs.Tab>
+          <Tabs.Tab value="inventory" leftSection={<Package size={14} />} fw={700}>Inventory</Tabs.Tab>
+          <Tabs.Tab value="financial" leftSection={<DollarSign size={14} />} fw={700}>Financial</Tabs.Tab>
+        </Tabs.List>
 
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Sales Trends Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Sales Trends</CardTitle>
-                <CardDescription>Daily revenue and transaction count</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={salesTrends?.daily_trends || []}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis yAxisId="left" />
-                      <YAxis yAxisId="right" orientation="right" />
-                      <Tooltip
-                        formatter={(value, name) => [
-                          name === 'revenue' ? formatCurrency(Number(value)) : value,
-                          name === 'revenue' ? 'Revenue' : 'Transactions'
-                        ]}
-                      />
-                      <Legend />
-                      <Bar yAxisId="left" dataKey="revenue" fill="#8884d8" name="Revenue" />
-                      <Line yAxisId="right" type="monotone" dataKey="transactions" stroke="#82ca9d" name="Transactions" />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
+        <Tabs.Panel value="overview" pt="lg">
+          <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+            <Paper className="block-card" p="lg">
+              <Title order={4} mb="lg" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Sales Trends</Title>
+              <Box h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={salesTrends?.daily_trends || []}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                    <XAxis dataKey="date" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
+                    <YAxis yAxisId="left" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
+                    <YAxis yAxisId="right" orientation="right" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid var(--echo-border)', backgroundColor: 'var(--echo-surface)', color: 'var(--echo-text)' }} formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="revenue" fill="var(--accent-blue)" name="Revenue" radius={0} />
+                    <Line yAxisId="right" type="step" dataKey="transactions" stroke="var(--accent-teal)" name="Transactions" strokeWidth={3} dot={{ r: 4, fill: 'var(--accent-teal)', strokeWidth: 2 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
 
-            {/* Revenue Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Revenue Breakdown</CardTitle>
-                <CardDescription>Revenue by source</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={revenueBreakdown ? [
-                          { name: 'Sales', value: revenueBreakdown.sales_revenue, percentage: revenueBreakdown.breakdown.sales_percentage },
-                          { name: 'Repairs', value: revenueBreakdown.repair_revenue, percentage: revenueBreakdown.breakdown.repair_percentage }
-                        ] : []}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percentage }) => `${name}: ${percentage.toFixed(1)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {[0, 1].map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+            <Paper className="block-card" p="lg">
+              <Title order={4} mb="lg" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Revenue Breakdown</Title>
+              <Box h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={revenueBreakdown ? [
+                        { name: 'Sales', value: revenueBreakdown.sales_revenue },
+                        { name: 'Repairs', value: revenueBreakdown.repair_revenue }
+                      ] : []}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={80}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    >
+                      <Cell fill="var(--accent-blue)" />
+                      <Cell fill="var(--accent-teal)" />
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid var(--echo-border)', backgroundColor: 'var(--echo-surface)', color: 'var(--echo-text)' }} formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
 
-          {/* Top Products */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Selling Products</CardTitle>
-              <CardDescription>Best performing products by revenue</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {topProducts?.slice(0, 5).map((product, index) => (
-                  <div key={product.sku} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">
-                        {index + 1}
-                      </div>
-                      <div>
-                        <div className="font-medium">{product.name}</div>
-                        <div className="text-sm text-muted-foreground">{product.category} • {product.sku}</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-medium">{formatCurrency(product.total_revenue)}</div>
-                      <div className="text-sm text-muted-foreground">{product.total_quantity} units sold</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            <Paper className="block-card" p="lg" style={{ gridColumn: 'span 2' }}>
+              <Title order={4} mb="lg" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Top Selling Products</Title>
+              <Table style={{ borderCollapse: 'collapse' }}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Product</Table.Th>
+                    <Table.Th>Category</Table.Th>
+                    <Table.Th>Units Sold</Table.Th>
+                    <Table.Th>Revenue</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {topProducts?.map((product, idx) => (
+                    <Table.Tr key={product.sku}>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}>
+                        <Group gap="sm">
+                          <Badge color="dark" variant="outline" size="sm" style={{ borderRadius: 0, border: '1px solid black' }}>{idx + 1}</Badge>
+                          <Text size="sm" fw={800}>{product.name}</Text>
+                        </Group>
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={700}>{product.category}</Text></Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={700}>{product.total_quantity}</Text></Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}><Text size="sm" fw={800}>{formatCurrency(product.total_revenue)}</Text></Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Paper>
+          </SimpleGrid>
+        </Tabs.Panel>
 
-        <TabsContent value="sales" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Sales Trends Line Chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Sales Revenue Trend</CardTitle>
-                <CardDescription>Daily revenue over time</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={salesTrends?.daily_trends || []}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                      <Area type="monotone" dataKey="revenue" stroke="#8884d8" fill="#8884d8" fillOpacity={0.3} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
+        <Tabs.Panel value="sales" pt="lg">
+          {/* Add more detailed sales charts if needed */}
+          <Paper withBorder p="lg" radius="md">
+            <Title order={4} mb="lg">Category Performance</Title>
+            <Box h={400}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={categoryPerformance?.categories || []}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <YAxis tickFormatter={formatCurrencyShort} />
+                  <Tooltip formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
+                  <Bar dataKey="total_revenue" fill="var(--accent-indigo)" radius={0} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Box>
+          </Paper>
+        </Tabs.Panel>
 
-            {/* Category Performance */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Category Performance</CardTitle>
-                <CardDescription>Revenue by product category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={categoryPerformance?.categories || []} layout="horizontal">
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis type="number" />
-                      <YAxis dataKey="name" type="category" width={100} />
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                      <Bar dataKey="total_revenue" fill="#8884d8" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+        <Tabs.Panel value="inventory" pt="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+            <Paper withBorder p="lg" radius="md">
+              <Title order={4} mb="lg">Value by Category</Title>
+              <Box h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={inventoryAnalysis?.category_breakdown ? Object.entries(inventoryAnalysis.category_breakdown).map(([name, d]) => ({ name, value: d.value_at_cost })) : []}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      dataKey="value"
+                      label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
+                    >
+                      {inventoryAnalysis && Object.keys(inventoryAnalysis.category_breakdown).map((_, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
+            <Paper withBorder p="lg" radius="md">
+              <Title order={4} mb="lg">Inventory Health</Title>
+              <Stack gap="md">
+                <Box>
+                  <Group justify="space-between" mb="xs">
+                    <Text size="sm">Low Stock Items</Text>
+                    <Text size="sm" fw={500}>{inventoryAnalysis?.low_stock_products || 0}</Text>
+                  </Group>
+                  <Progress value={lowStockPercentage} color="orange.6" size="lg" radius={0} style={{ border: '1px solid black' }} />
+                </Box>
+                <Box>
+                  <Group justify="space-between" mb="xs">
+                    <Text size="sm">Total Products</Text>
+                    <Text size="sm" fw={500}>{inventoryAnalysis?.total_products || 0}</Text>
+                  </Group>
+                  <Progress value={100} color="blue.6" size="lg" radius={0} style={{ border: '1px solid black' }} />
+                </Box>
+              </Stack>
+            </Paper>
+          </SimpleGrid>
+        </Tabs.Panel>
 
-        <TabsContent value="inventory" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Inventory Value by Category */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Inventory Value by Category</CardTitle>
-                <CardDescription>Current inventory value distribution</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={inventoryAnalysis?.category_analysis ? Object.entries(inventoryAnalysis.category_analysis).map(([name, data]) => ({
-                          name,
-                          value: data.value
-                        })) : []}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name}: ${((percent || 0) * 100).toFixed(1)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {Object.keys(inventoryAnalysis?.category_analysis || {}).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Inventory Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Inventory Summary</CardTitle>
-                <CardDescription>Key inventory metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Total Inventory Value</span>
-                    <span className="text-lg font-bold">{formatCurrency(inventoryAnalysis?.total_inventory_value || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Total Products</span>
-                    <span className="text-lg font-bold">{formatNumber(inventoryAnalysis?.total_products || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Low Stock Products</span>
-                    <Badge variant="destructive">{formatNumber(inventoryAnalysis?.low_stock_products || 0)}</Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Low Stock Value</span>
-                    <span className="text-lg font-bold text-orange-600">{formatCurrency(inventoryAnalysis?.low_stock_value || 0)}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="financial" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Financial Summary */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Financial Summary</CardTitle>
-                <CardDescription>Key financial metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Total Revenue</span>
-                    <span className="text-lg font-bold text-green-600">{formatCurrency(financialSummary?.total_revenue || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Cost of Goods Sold</span>
-                    <span className="text-lg font-bold text-red-600">{formatCurrency(financialSummary?.total_cogs || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Gross Profit</span>
-                    <span className="text-lg font-bold">{formatCurrency(financialSummary?.total_gross_profit || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Total Expenses</span>
-                    <span className="text-lg font-bold text-red-600">{formatCurrency(financialSummary?.total_expenses || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Net Profit</span>
-                    <span className="text-lg font-bold text-green-600">{formatCurrency(financialSummary?.net_profit || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">Profit Margin</span>
-                    <Badge variant={financialSummary && financialSummary.profit_margin > 0 ? "default" : "destructive"}>
-                      {(financialSummary?.profit_margin || 0).toFixed(1)}%
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Expenses Breakdown */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Expenses Breakdown</CardTitle>
-                <CardDescription>Expenses by category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={expenseBreakdown?.categories || []}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="category" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                      <Bar dataKey="amount" fill="#ff6b6b" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
+        <Tabs.Panel value="financial" pt="lg">
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">
+            <Paper withBorder p="lg" radius="md">
+              <Title order={4} mb="lg">Profitability Overview</Title>
+              <Table verticalSpacing="md">
+                <Table.Tbody>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Sales Revenue</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="green">{formatCurrency(financialSummary?.sales_revenue ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Sales COGS</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="red">-{formatCurrency(financialSummary?.sales_cogs ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Sales Gross Profit</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={600}>{formatCurrency(financialSummary?.sales_gross_profit ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr style={{ borderTop: '1px solid #eee' }}>
+                    <Table.Td><Text size="sm" color="dimmed">Repair Revenue</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="green">{formatCurrency(financialSummary?.repair_revenue ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Repair Parts Cost</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="red">-{formatCurrency(financialSummary?.repair_parts_cost ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Repair Labor Cost</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="red">-{formatCurrency(financialSummary?.repair_labor_cost ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Repair Gross Profit</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={600}>{formatCurrency(financialSummary?.repair_gross_profit ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr style={{ borderTop: '1px solid #eee' }}>
+                    <Table.Td><Text size="sm" color="dimmed">Transport / Other</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="red">-{formatCurrency(financialSummary?.transport_costs ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Operating Expenses</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={500} color="red">-{formatCurrency(financialSummary?.total_expenses ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="md" fw={800}>Net Profit</Text></Table.Td>
+                    <Table.Td><Text size="md" fw={800} color={financialSummary?.net_profit && financialSummary.net_profit >= 0 ? "green" : "red"}>{formatCurrency(financialSummary?.net_profit ?? 0)}</Text></Table.Td>
+                  </Table.Tr>
+                  <Table.Tr>
+                    <Table.Td><Text size="sm" color="dimmed">Profit Margin</Text></Table.Td>
+                    <Table.Td><Text size="sm" fw={700}>{(financialSummary?.profit_margin ?? 0).toFixed(1)}%</Text></Table.Td>
+                  </Table.Tr>
+                </Table.Tbody>
+              </Table>
+            </Paper>
+            <Paper withBorder p="lg" radius="md">
+              <Title order={4} mb="lg">Expense Breakdown</Title>
+              <Box h={300}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={expenseBreakdown?.categories || []}>
+                    <XAxis dataKey="category" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="amount" fill="var(--accent-red)" radius={0} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Box>
+            </Paper>
+          </SimpleGrid>
+        </Tabs.Panel>
       </Tabs>
-    </div>
+    </Container>
   );
 };
 

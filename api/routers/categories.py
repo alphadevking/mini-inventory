@@ -6,26 +6,44 @@ from sqlalchemy import text
 
 from ..database import get_session
 from ..models import (
-    ProductCategory, ProductSubcategory, ProductAttributeDefinition,
-    ProductCategoryCreate, ProductCategoryUpdate,
-    ProductSubcategoryCreate, ProductSubcategoryUpdate,
-    ProductAttributeDefinitionCreate, ProductAttributeDefinitionUpdate
+    ProductCategory,
+    ProductSubcategory,
+    ProductAttributeDefinition,
+    ProductCategoryCreate,
+    ProductCategoryUpdate,
+    ProductSubcategoryCreate,
+    ProductSubcategoryUpdate,
+    ProductAttributeDefinitionCreate,
+    ProductAttributeDefinitionUpdate,
 )
 
-router = APIRouter(prefix="/categories", tags=["categories"])
+from ..dependencies import get_current_user, require_manager
+from ..models import UserRead
+
+router = APIRouter(
+    prefix="/categories", tags=["categories"], dependencies=[Depends(get_current_user)]
+)
+
 
 # --- Category Management ---
 @router.get("/", response_model=List[ProductCategory])
 def get_categories(session: Session = Depends(get_session)):
     """Get all product categories"""
-    categories = session.exec(select(ProductCategory).where(ProductCategory.is_active)).all()
+    categories = session.exec(
+        select(ProductCategory).where(ProductCategory.is_active)
+    ).all()
     return categories
 
+
 @router.post("/", response_model=ProductCategory, status_code=status.HTTP_201_CREATED)
-def create_category(category: ProductCategoryCreate, session: Session = Depends(get_session)):
+def create_category(
+    category: ProductCategoryCreate, session: Session = Depends(get_session), _: UserRead = Depends(require_manager)
+):
     """Create a new product category"""
     # Check if category name already exists
-    existing = session.exec(select(ProductCategory).where(ProductCategory.name == category.name)).first()
+    existing = session.exec(
+        select(ProductCategory).where(ProductCategory.name == category.name)
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Category name already exists")
 
@@ -35,15 +53,16 @@ def create_category(category: ProductCategoryCreate, session: Session = Depends(
     session.refresh(db_category)
     return db_category
 
+
 # --- Subcategory Management (moved before /{category_id} to avoid conflicts) ---
 @router.get("/subcategories", response_model=List[ProductSubcategory])
 def get_all_subcategories(session: Session = Depends(get_session)):
     """Get all subcategories"""
     subcategories = session.exec(
-        select(ProductSubcategory)
-        .where(ProductSubcategory.is_active)
+        select(ProductSubcategory).where(ProductSubcategory.is_active)
     ).all()
     return subcategories
+
 
 @router.get("/subcategories/{subcategory_id}", response_model=ProductSubcategory)
 def get_subcategory(subcategory_id: UUID, session: Session = Depends(get_session)):
@@ -53,6 +72,7 @@ def get_subcategory(subcategory_id: UUID, session: Session = Depends(get_session
         raise HTTPException(status_code=404, detail="Subcategory not found")
     return subcategory
 
+
 @router.get("/{category_id}", response_model=ProductCategory)
 def get_category(category_id: UUID, session: Session = Depends(get_session)):
     """Get a specific category by ID"""
@@ -61,11 +81,13 @@ def get_category(category_id: UUID, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Category not found")
     return category
 
+
 @router.put("/{category_id}", response_model=ProductCategory)
 def update_category(
     category_id: UUID,
     category_update: ProductCategoryUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    _: UserRead = Depends(require_manager),
 ):
     """Update a category"""
     category = session.get(ProductCategory, category_id)
@@ -81,8 +103,9 @@ def update_category(
     session.refresh(category)
     return category
 
+
 @router.delete("/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_category(category_id: UUID, session: Session = Depends(get_session)):
+def delete_category(category_id: UUID, session: Session = Depends(get_session), _: UserRead = Depends(require_manager)):
     """Delete a category (soft delete)"""
     category = session.get(ProductCategory, category_id)
     if not category:
@@ -92,6 +115,7 @@ def delete_category(category_id: UUID, session: Session = Depends(get_session)):
     category.is_active = False
     session.add(category)
     session.commit()
+
 
 # --- Subcategory Management (continued) ---
 @router.get("/{category_id}/subcategories", response_model=List[ProductSubcategory])
@@ -104,11 +128,16 @@ def get_subcategories(category_id: UUID, session: Session = Depends(get_session)
     ).all()
     return subcategories
 
-@router.post("/{category_id}/subcategories", response_model=ProductSubcategory, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/{category_id}/subcategories",
+    response_model=ProductSubcategory,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_subcategory(
     category_id: UUID,
     subcategory: ProductSubcategoryCreate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Create a new subcategory"""
     # Verify category exists
@@ -123,7 +152,9 @@ def create_subcategory(
         .where(ProductSubcategory.name == subcategory.name)
     ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Subcategory name already exists in this category")
+        raise HTTPException(
+            status_code=400, detail="Subcategory name already exists in this category"
+        )
 
     db_subcategory = ProductSubcategory(**subcategory.dict())
     session.add(db_subcategory)
@@ -131,11 +162,12 @@ def create_subcategory(
     session.refresh(db_subcategory)
     return db_subcategory
 
+
 @router.put("/subcategories/{subcategory_id}", response_model=ProductSubcategory)
 def update_subcategory(
     subcategory_id: UUID,
     subcategory_update: ProductSubcategoryUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Update a subcategory"""
     subcategory = session.get(ProductSubcategory, subcategory_id)
@@ -151,7 +183,10 @@ def update_subcategory(
     session.refresh(subcategory)
     return subcategory
 
-@router.delete("/subcategories/{subcategory_id}", status_code=status.HTTP_204_NO_CONTENT)
+
+@router.delete(
+    "/subcategories/{subcategory_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_subcategory(subcategory_id: UUID, session: Session = Depends(get_session)):
     """Delete a subcategory (soft delete)"""
     subcategory = session.get(ProductSubcategory, subcategory_id)
@@ -163,9 +198,15 @@ def delete_subcategory(subcategory_id: UUID, session: Session = Depends(get_sess
     session.add(subcategory)
     session.commit()
 
+
 # --- Attribute Definition Management ---
-@router.get("/subcategories/{subcategory_id}/attributes", response_model=List[ProductAttributeDefinition])
-def get_attribute_definitions(subcategory_id: UUID, session: Session = Depends(get_session)):
+@router.get(
+    "/subcategories/{subcategory_id}/attributes",
+    response_model=List[ProductAttributeDefinition],
+)
+def get_attribute_definitions(
+    subcategory_id: UUID, session: Session = Depends(get_session)
+):
     """Get all attribute definitions for a specific subcategory"""
     attributes = session.exec(
         select(ProductAttributeDefinition)
@@ -174,11 +215,16 @@ def get_attribute_definitions(subcategory_id: UUID, session: Session = Depends(g
     ).all()
     return attributes
 
-@router.post("/subcategories/{subcategory_id}/attributes", response_model=ProductAttributeDefinition, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/subcategories/{subcategory_id}/attributes",
+    response_model=ProductAttributeDefinition,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_attribute_definition(
     subcategory_id: UUID,
     attribute: ProductAttributeDefinitionCreate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Create a new attribute definition"""
     # Verify subcategory exists
@@ -193,7 +239,9 @@ def create_attribute_definition(
         .where(ProductAttributeDefinition.name == attribute.name)
     ).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Attribute name already exists in this subcategory")
+        raise HTTPException(
+            status_code=400, detail="Attribute name already exists in this subcategory"
+        )
 
     db_attribute = ProductAttributeDefinition(**attribute.dict())
     session.add(db_attribute)
@@ -201,11 +249,12 @@ def create_attribute_definition(
     session.refresh(db_attribute)
     return db_attribute
 
+
 @router.put("/attributes/{attribute_id}", response_model=ProductAttributeDefinition)
 def update_attribute_definition(
     attribute_id: UUID,
     attribute_update: ProductAttributeDefinitionUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Update an attribute definition"""
     attribute = session.get(ProductAttributeDefinition, attribute_id)
@@ -221,8 +270,11 @@ def update_attribute_definition(
     session.refresh(attribute)
     return attribute
 
+
 @router.delete("/attributes/{attribute_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_attribute_definition(attribute_id: UUID, session: Session = Depends(get_session)):
+def delete_attribute_definition(
+    attribute_id: UUID, session: Session = Depends(get_session)
+):
     """Delete an attribute definition (soft delete)"""
     attribute = session.get(ProductAttributeDefinition, attribute_id)
     if not attribute:
@@ -232,6 +284,7 @@ def delete_attribute_definition(attribute_id: UUID, session: Session = Depends(g
     attribute.is_active = False
     session.add(attribute)
     session.commit()
+
 
 # --- Initialization ---
 @router.post("/initialize", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -251,11 +304,23 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "color": "#3B82F6",
             "subcategories": [
                 {"name": "iPhone", "description": "Apple smartphones", "icon": "🍎"},
-                {"name": "Samsung", "description": "Samsung Galaxy series", "icon": "📱"},
-                {"name": "Google Pixel", "description": "Google Pixel phones", "icon": "🔍"},
+                {
+                    "name": "Samsung",
+                    "description": "Samsung Galaxy series",
+                    "icon": "📱",
+                },
+                {
+                    "name": "Google Pixel",
+                    "description": "Google Pixel phones",
+                    "icon": "🔍",
+                },
                 {"name": "OnePlus", "description": "OnePlus smartphones", "icon": "➕"},
-                {"name": "Accessories", "description": "Phone cases, chargers, etc.", "icon": "🔌"}
-            ]
+                {
+                    "name": "Accessories",
+                    "description": "Phone cases, chargers, etc.",
+                    "icon": "🔌",
+                },
+            ],
         },
         {
             "name": "Laptops",
@@ -264,11 +329,27 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "color": "#10B981",
             "subcategories": [
                 {"name": "MacBook", "description": "Apple laptops", "icon": "🍎"},
-                {"name": "Windows Laptops", "description": "Windows-based laptops", "icon": "🪟"},
-                {"name": "Gaming Laptops", "description": "High-performance gaming laptops", "icon": "🎮"},
-                {"name": "Business Laptops", "description": "Professional business laptops", "icon": "💼"},
-                {"name": "Accessories", "description": "Laptop bags, mice, keyboards", "icon": "🖱️"}
-            ]
+                {
+                    "name": "Windows Laptops",
+                    "description": "Windows-based laptops",
+                    "icon": "🪟",
+                },
+                {
+                    "name": "Gaming Laptops",
+                    "description": "High-performance gaming laptops",
+                    "icon": "🎮",
+                },
+                {
+                    "name": "Business Laptops",
+                    "description": "Professional business laptops",
+                    "icon": "💼",
+                },
+                {
+                    "name": "Accessories",
+                    "description": "Laptop bags, mice, keyboards",
+                    "icon": "🖱️",
+                },
+            ],
         },
         {
             "name": "Tablets",
@@ -277,10 +358,22 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "color": "#F59E0B",
             "subcategories": [
                 {"name": "iPad", "description": "Apple tablets", "icon": "🍎"},
-                {"name": "Android Tablets", "description": "Android-based tablets", "icon": "🤖"},
-                {"name": "Windows Tablets", "description": "Windows tablets and 2-in-1s", "icon": "🪟"},
-                {"name": "Accessories", "description": "Tablet cases, stylus, keyboards", "icon": "✏️"}
-            ]
+                {
+                    "name": "Android Tablets",
+                    "description": "Android-based tablets",
+                    "icon": "🤖",
+                },
+                {
+                    "name": "Windows Tablets",
+                    "description": "Windows tablets and 2-in-1s",
+                    "icon": "🪟",
+                },
+                {
+                    "name": "Accessories",
+                    "description": "Tablet cases, stylus, keyboards",
+                    "icon": "✏️",
+                },
+            ],
         },
         {
             "name": "Audio Devices",
@@ -288,11 +381,27 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "icon": "🎧",
             "color": "#8B5CF6",
             "subcategories": [
-                {"name": "Headphones", "description": "Over-ear and on-ear headphones", "icon": "🎧"},
-                {"name": "Earbuds", "description": "In-ear wireless earbuds", "icon": "🎵"},
-                {"name": "Speakers", "description": "Bluetooth and wired speakers", "icon": "🔊"},
-                {"name": "Audio Accessories", "description": "Cables, adapters, stands", "icon": "🔌"}
-            ]
+                {
+                    "name": "Headphones",
+                    "description": "Over-ear and on-ear headphones",
+                    "icon": "🎧",
+                },
+                {
+                    "name": "Earbuds",
+                    "description": "In-ear wireless earbuds",
+                    "icon": "🎵",
+                },
+                {
+                    "name": "Speakers",
+                    "description": "Bluetooth and wired speakers",
+                    "icon": "🔊",
+                },
+                {
+                    "name": "Audio Accessories",
+                    "description": "Cables, adapters, stands",
+                    "icon": "🔌",
+                },
+            ],
         },
         {
             "name": "Gaming",
@@ -301,10 +410,22 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "color": "#06B6D4",
             "subcategories": [
                 {"name": "Consoles", "description": "Gaming consoles", "icon": "🎮"},
-                {"name": "Controllers", "description": "Gaming controllers and pads", "icon": "🕹️"},
-                {"name": "PC Gaming", "description": "PC gaming accessories", "icon": "🖥️"},
-                {"name": "VR Equipment", "description": "Virtual reality headsets and accessories", "icon": "🥽"}
-            ]
+                {
+                    "name": "Controllers",
+                    "description": "Gaming controllers and pads",
+                    "icon": "🕹️",
+                },
+                {
+                    "name": "PC Gaming",
+                    "description": "PC gaming accessories",
+                    "icon": "🖥️",
+                },
+                {
+                    "name": "VR Equipment",
+                    "description": "Virtual reality headsets and accessories",
+                    "icon": "🥽",
+                },
+            ],
         },
         {
             "name": "Wearables",
@@ -312,12 +433,28 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             "icon": "⌚",
             "color": "#EF4444",
             "subcategories": [
-                {"name": "Smartwatches", "description": "Apple Watch, Samsung Galaxy Watch", "icon": "⌚"},
-                {"name": "Fitness Trackers", "description": "Fitbit, Garmin fitness devices", "icon": "🏃"},
-                {"name": "Health Monitors", "description": "Health monitoring devices", "icon": "❤️"},
-                {"name": "Accessories", "description": "Bands, chargers, cases", "icon": "🔗"}
-            ]
-        }
+                {
+                    "name": "Smartwatches",
+                    "description": "Apple Watch, Samsung Galaxy Watch",
+                    "icon": "⌚",
+                },
+                {
+                    "name": "Fitness Trackers",
+                    "description": "Fitbit, Garmin fitness devices",
+                    "icon": "🏃",
+                },
+                {
+                    "name": "Health Monitors",
+                    "description": "Health monitoring devices",
+                    "icon": "❤️",
+                },
+                {
+                    "name": "Accessories",
+                    "description": "Bands, chargers, cases",
+                    "icon": "🔗",
+                },
+            ],
+        },
     ]
 
     created_categories = []
@@ -329,7 +466,7 @@ def initialize_default_categories(session: Session = Depends(get_session)):
             name=cat_data["name"],
             description=cat_data["description"],
             icon=cat_data["icon"],
-            color=cat_data["color"]
+            color=cat_data["color"],
         )
         session.add(category)
         session.flush()  # Get the ID
@@ -342,7 +479,7 @@ def initialize_default_categories(session: Session = Depends(get_session)):
                 name=subcat_data["name"],
                 description=subcat_data["description"],
                 icon=subcat_data["icon"],
-                category_id=category.id
+                category_id=category.id,
             )
             session.add(subcategory)
             created_subcategories.append(subcategory)
@@ -353,8 +490,11 @@ def initialize_default_categories(session: Session = Depends(get_session)):
         "message": "Successfully initialized gadget categories and subcategories",
         "categories_created": len(created_categories),
         "subcategories_created": len(created_subcategories),
-        "categories": [{"id": str(cat.id), "name": cat.name} for cat in created_categories]
+        "categories": [
+            {"id": str(cat.id), "name": cat.name} for cat in created_categories
+        ],
     }
+
 
 @router.post("/reset", status_code=status.HTTP_200_OK)
 def reset_categories(session: Session = Depends(get_session)):
@@ -366,15 +506,20 @@ def reset_categories(session: Session = Depends(get_session)):
     session.query(ProductCategory).delete()
 
     # Reset any products that reference these categories
-    session.execute(text("UPDATE product SET category_id = NULL, subcategory_id = NULL"))
+    session.execute(
+        text("UPDATE product SET category_id = NULL, subcategory_id = NULL")
+    )
 
     session.commit()
 
     return {"message": "All categories and subcategories have been reset"}
 
+
 # --- Utility Endpoints ---
 @router.get("/{category_id}/full", response_model=dict)
-def get_category_with_subcategories(category_id: UUID, session: Session = Depends(get_session)):
+def get_category_with_subcategories(
+    category_id: UUID, session: Session = Depends(get_session)
+):
     """Get a category with all its subcategories and attribute definitions"""
     category = session.get(ProductCategory, category_id)
     if not category:
@@ -392,7 +537,7 @@ def get_category_with_subcategories(category_id: UUID, session: Session = Depend
         "description": category.description,
         "icon": category.icon,
         "color": category.color,
-        "subcategories": []
+        "subcategories": [],
     }
 
     for subcat in subcategories:
@@ -417,10 +562,10 @@ def get_category_with_subcategories(category_id: UUID, session: Session = Depend
                     "default_value": attr.default_value,
                     "options": attr.options,
                     "unit": attr.unit,
-                    "order": attr.order
+                    "order": attr.order,
                 }
                 for attr in attributes
-            ]
+            ],
         }
         result["subcategories"].append(subcat_data)
 

@@ -1,13 +1,8 @@
-import React from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import React from 'react';
+import { Group, TextInput, Select, Paper } from '@mantine/core';
+import { Search } from 'lucide-react';
 import { useFetch } from "@/lib/api";
-import { Search, Filter, Download, Settings } from "lucide-react";
-import { Link } from "react-router";
-import { exportToExcel } from "@/lib/exportUtils";
-import { Product, ProductCategory, ProductSubcategory } from "@/types";
+import { ProductCategory, ProductSubcategory, Product } from "@/types";
 
 interface ProductFiltersProps {
   searchTerm: string;
@@ -17,7 +12,6 @@ interface ProductFiltersProps {
   selectedSubcategory: string;
   onSubcategoryChange: (value: string) => void;
   filteredProducts: Product[];
-  className?: string;
 }
 
 export default function ProductFilters({
@@ -27,102 +21,62 @@ export default function ProductFilters({
   onCategoryChange,
   selectedSubcategory,
   onSubcategoryChange,
-  filteredProducts,
-  className = ""
+  filteredProducts
 }: ProductFiltersProps) {
-  const { data: categories } = useFetch<ProductCategory[]>("/api/categories");
-  const [subcategories, setSubcategories] = React.useState<ProductSubcategory[]>([]);
+  const { data: categoriesData } = useFetch<ProductCategory[]>('/api/categories');
+  const { data: subcategoriesData } = useFetch<ProductSubcategory[]>('/api/subcategories');
 
-  // Fetch subcategories when category changes
-  React.useEffect(() => {
-    if (selectedCategory && selectedCategory !== "all") {
-      fetch(`/api/categories/${selectedCategory}/subcategories`)
-        .then(response => response.json())
-        .then(data => setSubcategories(data))
-        .catch(error => console.error("Failed to fetch subcategories:", error));
-    } else {
-      setSubcategories([]);
-    }
-  }, [selectedCategory]);
+  const categories = categoriesData || [];
+  const subcategories = subcategoriesData || [];
 
-  const handleCategoryChange = (value: string) => {
-    onCategoryChange(value);
-    onSubcategoryChange("all"); // Reset subcategory when category changes
-    setSubcategories([]); // Clear subcategories when category changes
-  };
+  const categoryOptions = [
+    { value: 'all', label: 'All Categories' },
+    ...categories.map(cat => ({ value: cat.id.toString(), label: cat.name }))
+  ];
+
+  const subcategoryOptions = [
+    { value: 'all', label: 'All Subcategories' },
+    ...subcategories
+      .filter(sub => selectedCategory === 'all' || sub.category_id.toString() === selectedCategory)
+      .map(sub => ({ value: sub.id.toString(), label: sub.name }))
+  ];
 
   return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Filter className="w-5 h-5" />
-          Filters & Search
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search products..."
-              value={searchTerm}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          <Select value={selectedCategory || "all"} onValueChange={handleCategoryChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="All Categories" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              {categories?.map((category) => (
-                <SelectItem key={category.id} value={category.id}>
-                  <div className="flex items-center gap-2">
-                    {category.icon && <span>{category.icon}</span>}
-                    <span>{category.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={selectedSubcategory || "all"} onValueChange={onSubcategoryChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="All Subcategories" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Subcategories</SelectItem>
-              {subcategories.map((subcategory) => (
-                <SelectItem key={subcategory.id} value={subcategory.id}>
-                  <div className="flex items-center gap-2">
-                    {subcategory.icon && <span>{subcategory.icon}</span>}
-                    <span>{subcategory.name}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => exportToExcel(filteredProducts, "products")}
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Export
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/categories">
-                <Settings className="w-4 h-4 mr-2" />
-                Categories
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <Paper className="block-card" p="md">
+      <Group align="flex-end">
+        <TextInput
+          label="SEARCH"
+          placeholder="Product name, SKU, brand..."
+          leftSection={<Search size={16} />}
+          value={searchTerm}
+          onChange={(e) => onSearchChange(e.target.value)}
+          style={{ flex: 1 }}
+          className="block-input"
+          styles={{ label: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 } }}
+        />
+        <Select
+          label="CATEGORY"
+          data={categoryOptions}
+          value={selectedCategory}
+          onChange={(val) => {
+            onCategoryChange(val || 'all');
+            onSubcategoryChange('all');
+          }}
+          searchable
+          className="block-input"
+          styles={{ label: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 } }}
+        />
+        <Select
+          label="SUBCATEGORY"
+          data={subcategoryOptions}
+          value={selectedSubcategory}
+          onChange={(val) => onSubcategoryChange(val || 'all')}
+          disabled={selectedCategory === 'all'}
+          searchable
+          className="block-input"
+          styles={{ label: { fontFamily: "'Manrope', sans-serif", fontWeight: 700 } }}
+        />
+      </Group>
+    </Paper>
   );
 }

@@ -1,49 +1,279 @@
-import React, { useState, useEffect } from "react";
-import { useFetch } from "@/lib/api";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
-import { PageHeader } from "@/components/ui/page-header";
+import React, { useState, useMemo } from "react";
+import { CURRENCY_SYMBOL } from '../config/app';
+import { useFetch, returnsApi } from "@/lib/api";
+import { useAuth } from "../contexts/AuthContext";
+import {
+  Button,
+  Badge,
+  TextInput,
+  Textarea,
+  Group,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  Table,
+  Modal,
+  Select,
+  NumberInput,
+  Paper,
+  Box,
+  Pagination,
+  Menu,
+  ActionIcon,
+  Divider,
+} from "@mantine/core";
+import { DateInput } from "@mantine/dates";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Plus, Edit, Trash2, MoreHorizontal, RotateCcw, DollarSign, User, Package, Search } from "lucide-react";
-import { exportToExcel, exportToCSV, exportToPDF } from "@/lib/exportUtils";
-import { useForm } from "react-hook-form";
+import { Plus, Eye, MoreVertical, RotateCcw, DollarSign, Search, ArrowRight } from "lucide-react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ReturnCreateSchema, ReturnUpdateSchema, type ReturnCreate, type ReturnUpdate } from "@/lib/schemas";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { toast } from "sonner";
-import { Return } from "@/types";
+import {
+  ReturnCreateSchema,
+  ReturnStatusUpdateSchema,
+  type ReturnCreate,
+  type ReturnStatusUpdate,
+} from "@/lib/schemas";
+import { toast } from "../components/Toast";
+import type { Return, Product, ReturnStatus, ReturnAction } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 
-interface Product {
-  id: string;
-  phone_model: string;
-  part_type: string;
-  variant: string;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const STATUS_COLORS: Record<ReturnStatus, string> = {
+  pending: "orange",
+  approved: "blue",
+  rejected: "red",
+  resolved: "teal",
+};
+
+const ACTION_COLORS: Record<ReturnAction, string> = {
+  refund: "blue",
+  exchange: "violet",
+  repair: "orange",
+  replacement: "teal",
+};
+
+function StatusBadge({ status }: { status: ReturnStatus }) {
+  return (
+    <Badge color={STATUS_COLORS[status]} variant="outline" fw={700}>
+      {status.toUpperCase()}
+    </Badge>
+  );
 }
 
-export default function Returns() {
-  const [returns, setReturns] = useState<Return[]>([]);
-  const [filteredReturns, setFilteredReturns] = useState<Return[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(10);
-  const { data: returnsData, loading: returnsLoading, error: returnsError, refetch: refetchReturns } = useFetch<Return[]>("/api/returns");
-  const { data: productsData, loading: productsLoading, error: productsError, refetch: refetchProducts } = useFetch<Product[]>("/api/products/");
-  const { isRefreshing, handleRefresh } = usePageState();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingReturn, setEditingReturn] = useState<Return | null>(null);
+function ActionBadge({ action }: { action: ReturnAction }) {
+  return (
+    <Badge color={ACTION_COLORS[action]} variant="outline" fw={700}>
+      {action.toUpperCase()}
+    </Badge>
+  );
+}
 
-  // React Hook Form with Zod validation
+// ─── Status Transition Panel ──────────────────────────────────────────────────
+
+function StatusUpdatePanel({
+  ret,
+  onUpdated,
+}: {
+  ret: Return;
+  onUpdated: () => void;
+}) {
+  const form = useForm<ReturnStatusUpdate>({
+    resolver: zodResolver(ReturnStatusUpdateSchema),
+    defaultValues: { new_status: "approved", notes: "" },
+  });
+
+  const availableStatuses = (["pending", "approved", "rejected", "resolved"] as ReturnStatus[]).filter(
+    (s) => s !== ret.status
+  );
+
+  const submit = async (data: ReturnStatusUpdate) => {
+    try {
+      await returnsApi.updateStatus(ret.id, data);
+      toast.success(`Status updated to ${data.new_status}`);
+      onUpdated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
+    }
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(submit)}>
+      <Stack gap="sm">
+        <Controller
+          name="new_status"
+          control={form.control}
+          render={({ field }) => (
+            <Select
+              label="NEW STATUS"
+              data={availableStatuses.map((s) => ({ value: s, label: s.toUpperCase() }))}
+              value={field.value}
+              onChange={(val) => field.onChange(val as ReturnStatus)}
+              className="block-input"
+            />
+          )}
+        />
+        <Textarea
+          label="NOTES (OPTIONAL)"
+          placeholder="Reason for status change..."
+          minRows={2}
+          {...form.register("notes")}
+          className="block-input"
+        />
+        <Group justify="flex-end">
+          <Button
+            type="submit"
+            className="block-button"
+            leftSection={<ArrowRight size={14} />}
+            loading={form.formState.isSubmitting}
+          >
+            UPDATE STATUS
+          </Button>
+        </Group>
+      </Stack>
+    </form>
+  );
+}
+
+// ─── Return Detail Modal ──────────────────────────────────────────────────────
+
+function ReturnDetailModal({
+  ret: initialRet,
+  products,
+  onClose,
+  onMutated,
+}: {
+  ret: Return;
+  products: Product[];
+  onClose: () => void;
+  onMutated: () => void;
+}) {
+  const [ret, setRet] = useState<Return>(initialRet);
+
+  const refresh = async () => {
+    try {
+      const updated = await returnsApi.get(ret.id);
+      setRet(updated);
+      onMutated();
+    } catch {
+      // stay open with stale data
+    }
+  };
+
+  const productMap = useMemo(
+    () => Object.fromEntries(products.map((p) => [p.id, p])),
+    [products]
+  );
+
+  const productName = ret.product?.name ?? productMap[ret.product_id]?.name ?? ret.product_id.slice(0, 8);
+  const replacementName = ret.replacement_product_id
+    ? (productMap[ret.replacement_product_id]?.name ?? ret.replacement_product_id.slice(0, 8))
+    : null;
+
+  return (
+    <Modal opened onClose={onClose} title="Return Details" size="lg">
+      <Stack gap="xs">
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Customer</Text>
+          <Text size="sm" fw={800}>{ret.customer_name}</Text>
+        </Group>
+        <Divider />
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Phone</Text>
+          <Text size="sm" fw={700}>{ret.customer_phone}</Text>
+        </Group>
+        {ret.customer_email && (
+          <>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Email</Text>
+              <Text size="sm" fw={700}>{ret.customer_email}</Text>
+            </Group>
+          </>
+        )}
+        <Divider />
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Product</Text>
+          <Text size="sm" fw={800}>{productName}</Text>
+        </Group>
+        <Divider />
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Action</Text>
+          <ActionBadge action={ret.action_taken} />
+        </Group>
+        {replacementName && (
+          <>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Replacement Product</Text>
+              <Text size="sm" fw={800}>{replacementName}</Text>
+            </Group>
+          </>
+        )}
+        <Divider />
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Status</Text>
+          <StatusBadge status={ret.status} />
+        </Group>
+        {ret.refund_amount !== undefined && ret.refund_amount > 0 && (
+          <>
+            <Divider />
+            <Group justify="space-between">
+              <Text size="sm" color="dimmed" fw={700}>Refund Amount</Text>
+              <Text size="sm" fw={800}>{formatCurrency(ret.refund_amount)}</Text>
+            </Group>
+          </>
+        )}
+        <Divider />
+        <Group justify="space-between">
+          <Text size="sm" color="dimmed" fw={700}>Return Date</Text>
+          <Text size="sm" fw={700}>{new Date(ret.return_date).toLocaleDateString()}</Text>
+        </Group>
+        {ret.reason && (
+          <>
+            <Divider />
+            <Stack gap={2}>
+              <Text size="sm" color="dimmed" fw={700}>Reason</Text>
+              <Text size="sm" fw={600}>{ret.reason}</Text>
+            </Stack>
+          </>
+        )}
+        {ret.notes && (
+          <>
+            <Divider />
+            <Stack gap={2}>
+              <Text size="sm" color="dimmed" fw={700}>Notes</Text>
+              <Text size="sm" fw={600}>{ret.notes}</Text>
+            </Stack>
+          </>
+        )}
+
+        {ret.status !== "resolved" && ret.status !== "rejected" && (
+          <>
+            <Divider mt="md" label="UPDATE STATUS" labelPosition="left" fw={700} />
+            <StatusUpdatePanel ret={ret} onUpdated={refresh} />
+          </>
+        )}
+      </Stack>
+    </Modal>
+  );
+}
+
+// ─── Create Return Modal ──────────────────────────────────────────────────────
+
+function CreateReturnModal({
+  products,
+  onClose,
+  onCreated,
+}: {
+  products: Product[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const form = useForm<ReturnCreate>({
     resolver: zodResolver(ReturnCreateSchema),
     defaultValues: {
@@ -53,630 +283,455 @@ export default function Returns() {
       customer_email: "",
       reason: "",
       action_taken: "refund",
-      status: "pending",
+      return_date: new Date().toISOString().split("T")[0],
       refund_amount: 0,
-      notes: ""
-    }
+      replacement_product_id: null,
+      notes: "",
+    },
   });
 
-  useEffect(() => {
-    if (returnsData) {
-      setReturns(returnsData);
-      setFilteredReturns(returnsData);
-    }
-  }, [returnsData]);
+  const actionTaken = form.watch("action_taken");
+  const needsReplacement = actionTaken === "exchange" || actionTaken === "replacement";
 
-  useEffect(() => {
-    if (productsData) {
-      setProducts(productsData);
-    }
-  }, [productsData]);
-
-  // Filter returns based on search term
-  useEffect(() => {
-    if (!searchTerm.trim()) {
-      setFilteredReturns(returns);
-      return;
-    }
-
-    const lowercasedSearch = searchTerm.toLowerCase();
-    const filtered = returns.filter(returnItem =>
-      returnItem.customer_name.toLowerCase().includes(lowercasedSearch) ||
-      returnItem.customer_phone.toLowerCase().includes(lowercasedSearch) ||
-      ((returnItem.product as any)?.phone_model?.toLowerCase().includes(lowercasedSearch)) ||
-      returnItem.action_taken.toLowerCase().includes(lowercasedSearch) ||
-      returnItem.status.toLowerCase().includes(lowercasedSearch) ||
-      returnItem.reason.toLowerCase().includes(lowercasedSearch)
-    );
-
-    setFilteredReturns(filtered);
-    setCurrentPage(1); // Reset to first page when searching
-  }, [searchTerm, returns]);
-
-  // Calculate pagination
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredReturns.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredReturns.length / itemsPerPage);
-
-  // Pagination controls
-  const goToPage = (page: number) => {
-    setCurrentPage(page);
-  };
-
-  const renderPagination = () => {
-    if (totalPages <= 1) return null;
-
-    return (
-      <div className="flex gap-2 items-center justify-center space-x-2 mt-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.max(1, currentPage - 1))}
-          disabled={currentPage === 1}
-        >
-          Previous
-        </Button>
-
-        <div className="flex gap-2 items-center space-x-1">
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-            <Button
-              key={page}
-              variant={currentPage === page ? "default" : "outline"}
-              size="sm"
-              onClick={() => goToPage(page)}
-              className="w-8 h-8 p-0"
-            >
-              {page}
-            </Button>
-          ))}
-        </div>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => goToPage(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage === totalPages}
-        >
-          Next
-        </Button>
-      </div>
-    );
-  };
-
-  const handleSubmit = async (data: ReturnCreate) => {
-    const url = editingReturn
-      ? `/api/returns/${editingReturn.id}`
-      : "/api/returns/";
-
-    const method = editingReturn ? "PUT" : "POST";
-
+  const submit = async (data: ReturnCreate) => {
     try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (response.ok) {
-        toast.success(editingReturn ? "Return updated successfully!" : "Return created successfully!");
-        setIsDialogOpen(false);
-        form.reset();
-        refetchReturns();
-      } else {
-        const errorData = await response.json();
-        toast.error("Failed to save return. Please try again.");
-        console.error("Error saving return:", errorData);
-      }
-    } catch (error) {
-      console.error("Error saving return:", error);
-      toast.error("Network error. Please check your connection and try again.");
+      const payload = {
+        ...data,
+        customer_email: data.customer_email === "" ? null : data.customer_email,
+        notes: data.notes === "" ? null : data.notes,
+        replacement_product_id: needsReplacement ? data.replacement_product_id : null,
+      };
+      await returnsApi.create(payload);
+      toast.success("Return created — stock adjusted automatically");
+      onCreated();
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create return");
     }
   };
-
-  const handleEdit = (returnItem: Return) => {
-    setEditingReturn(returnItem);
-    form.reset({
-      product_id: returnItem.product_id,
-      customer_name: returnItem.customer_name,
-      customer_phone: returnItem.customer_phone,
-      customer_email: returnItem.customer_email || "",
-      reason: returnItem.reason,
-      action_taken: returnItem.action_taken,
-      refund_amount: returnItem.refund_amount || 0,
-      notes: returnItem.notes || ""
-    });
-    setIsDialogOpen(true);
-  };
-
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this return?")) {
-      try {
-        const response = await fetch(`/api/returns/${id}`, {
-          method: "DELETE",
-        });
-
-        if (response.ok) {
-          refetchReturns();
-        }
-      } catch (error) {
-        console.error("Error deleting return:", error);
-      }
-    }
-  };
-
-  const resetForm = () => {
-    form.reset();
-    setEditingReturn(null);
-  };
-
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      pending: "secondary",
-      approved: "default",
-      rejected: "destructive",
-      resolved: "outline"
-    } as const;
-
-    return (
-      <Badge variant={variants[status as keyof typeof variants]}>
-        {status}
-      </Badge>
-    );
-  };
-
-  const getActionBadge = (action: string) => {
-    const variants = {
-      refund: "default",
-      repair: "secondary",
-      exchange: "outline",
-      replacement: "destructive"
-    } as const;
-
-    return (
-      <Badge variant={variants[action as keyof typeof variants]}>
-        {action}
-      </Badge>
-    );
-  };
-
-  const handleExport = (type: 'excel' | 'csv' | 'pdf') => {
-    const data = returns.map(returnItem => ({
-      ID: returnItem.id,
-      'Customer Name': returnItem.customer_name,
-      'Customer Phone': returnItem.customer_phone,
-      'Customer Email': returnItem.customer_email || '',
-      'Product': returnItem.product ?
-        `${(returnItem.product as any).phone_model} - ${(returnItem.product as any).part_type} ${(returnItem.product as any).variant}` :
-        `Product ID: ${returnItem.product_id}`,
-      'Reason': returnItem.reason,
-      'Action Taken': returnItem.action_taken,
-      'Status': returnItem.status,
-      'Return Date': returnItem.return_date,
-      'Refund Amount': returnItem.refund_amount || 0,
-      'Notes': returnItem.notes || '',
-      'Created At': returnItem.created_at
-    }));
-
-    const columns = [
-      { header: 'ID', dataKey: 'ID' },
-      { header: 'Customer Name', dataKey: 'Customer Name' },
-      { header: 'Customer Phone', dataKey: 'Customer Phone' },
-      { header: 'Product', dataKey: 'Product' },
-      { header: 'Action Taken', dataKey: 'Action Taken' },
-      { header: 'Status', dataKey: 'Status' },
-      { header: 'Refund Amount', dataKey: 'Refund Amount' }
-    ];
-
-    switch (type) {
-      case 'excel':
-        exportToExcel(data, 'returns');
-        break;
-      case 'csv':
-        exportToCSV(data, 'returns');
-        break;
-      case 'pdf':
-        exportToPDF(data, columns, 'returns');
-        break;
-    }
-  };
-
-  const totalRefunds = returns.reduce((sum, returnItem) => sum + (returnItem.refund_amount || 0), 0);
-  const totalReturns = returns.length;
-  const pendingReturns = returns.filter(returnItem => returnItem.status === "pending").length;
-  const resolvedReturns = returns.filter(returnItem => returnItem.status === "resolved").length;
-  const averageRefund = totalReturns > 0 ? totalRefunds / totalReturns : 0;
-
-  // Calculate returns by reason
-  const returnsByReason = returns.reduce((acc, returnItem) => {
-    const reason = returnItem.reason || 'other';
-    acc[reason] = (acc[reason] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  // Get most common return reason
-  const topReason = Object.entries(returnsByReason).reduce((max, [reason, count]) =>
-    count > max.count ? { reason, count } : max,
-    { reason: 'None', count: 0 }
-  );
-
-  const loading = returnsLoading || productsLoading;
-  const error = returnsError || productsError;
-
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <ErrorState
-          title="Error Loading Returns"
-          description={`Failed to load data: ${error.message}`}
-          onRetry={() => {
-            refetchReturns();
-            refetchProducts();
-          }}
-          isRetrying={isRefreshing}
-        />
-      </div>
-    );
-  }
-
-  if (loading && (!returnsData || !productsData)) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <LoadingState
-          title="Returns"
-          description="Loading your return records..."
-          cardCount={3}
-          showCharts={false}
-        />
-      </div>
-    );
-  }
 
   return (
-    <div className="container mx-auto px-4 py-4 sm:py-8">
+    <Modal opened onClose={onClose} title="New Return" size="lg">
+      <form onSubmit={form.handleSubmit(submit)}>
+        <Stack gap="md">
+          <Group grow>
+            <TextInput
+              label="CUSTOMER NAME"
+              placeholder="John Doe"
+              required
+              {...form.register("customer_name")}
+              error={form.formState.errors.customer_name?.message}
+              className="block-input"
+            />
+            <TextInput
+              label="PHONE NUMBER"
+              placeholder="080..."
+              required
+              {...form.register("customer_phone")}
+              error={form.formState.errors.customer_phone?.message}
+              className="block-input"
+            />
+          </Group>
+          <TextInput
+            label="EMAIL (OPTIONAL)"
+            placeholder="john@example.com"
+            {...form.register("customer_email")}
+            className="block-input"
+          />
+
+          <Controller
+            name="product_id"
+            control={form.control}
+            render={({ field, fieldState }) => (
+              <Select
+                label="RETURNED PRODUCT"
+                placeholder="Select product..."
+                required
+                searchable
+                data={products.map((p) => ({ value: p.id, label: p.name }))}
+                value={field.value || null}
+                onChange={(val) => field.onChange(val ?? "")}
+                error={fieldState.error?.message}
+                className="block-input"
+              />
+            )}
+          />
+
+          <Textarea
+            label="REASON FOR RETURN"
+            placeholder="Describe the issue..."
+            required
+            minRows={3}
+            {...form.register("reason")}
+            error={form.formState.errors.reason?.message}
+            className="block-input"
+          />
+
+          <Group grow align="flex-start">
+            <Controller
+              name="action_taken"
+              control={form.control}
+              render={({ field }) => (
+                <Select
+                  label="ACTION TAKEN"
+                  data={[
+                    { value: "refund", label: "REFUND" },
+                    { value: "repair", label: "REPAIR" },
+                    { value: "exchange", label: "EXCHANGE" },
+                    { value: "replacement", label: "REPLACEMENT" },
+                  ]}
+                  value={field.value}
+                  onChange={field.onChange}
+                  className="block-input"
+                />
+              )}
+            />
+            <Controller
+              name="refund_amount"
+              control={form.control}
+              render={({ field }) => (
+                <NumberInput
+                  label="REFUND AMOUNT"
+                  min={0}
+                  decimalScale={2}
+                  leftSection={CURRENCY_SYMBOL}
+                  value={field.value}
+                  onChange={(val) => field.onChange(Number(val))}
+                  className="block-input"
+                />
+              )}
+            />
+          </Group>
+
+          {needsReplacement && (
+            <Controller
+              name="replacement_product_id"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Select
+                  label="REPLACEMENT PRODUCT"
+                  placeholder="Select replacement..."
+                  required
+                  searchable
+                  data={products.map((p) => ({
+                    value: p.id,
+                    label: `${p.name} — Stock: ${p.current_stock}`,
+                    disabled: p.current_stock === 0,
+                  }))}
+                  value={field.value ?? null}
+                  onChange={(val) => field.onChange(val ?? null)}
+                  error={fieldState.error?.message}
+                  className="block-input"
+                />
+              )}
+            />
+          )}
+
+          <Controller
+            name="return_date"
+            control={form.control}
+            render={({ field }) => (
+              <DateInput
+                label="RETURN DATE"
+                placeholder="Pick date"
+                value={field.value || null}
+                onChange={(val: string | null) => {
+                  field.onChange(val ?? new Date().toISOString().split("T")[0]);
+                }}
+                className="block-input"
+              />
+            )}
+          />
+
+          <Textarea
+            label="NOTES"
+            placeholder="Additional notes..."
+            minRows={2}
+            {...form.register("notes")}
+            className="block-input"
+          />
+
+          <Group justify="flex-end" mt="xl">
+            <Button
+              variant="light"
+              color="gray"
+              onClick={onClose}
+            >
+              CANCEL
+            </Button>
+            <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>
+              CREATE RETURN
+            </Button>
+          </Group>
+        </Stack>
+      </form>
+    </Modal>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function Returns() {
+  const { user } = useAuth();
+  const { data: returnsData, loading, error, refetch } = useFetch<Return[]>("/api/returns");
+  const { data: productsData } = useFetch<Product[]>("/api/products?limit=1000");
+  const { isRefreshing, handleRefresh } = usePageState();
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activePage, setPage] = useState(1);
+  const itemsPerPage = 10;
+
+  const [modal, setModal] = useState<
+    | { type: "create" }
+    | { type: "view"; ret: Return }
+    | null
+  >(null);
+
+  const returns = returnsData ?? [];
+  const products = productsData ?? [];
+
+  const filteredReturns = useMemo(
+    () =>
+      returns.filter(
+        (r) =>
+          r.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.customer_phone.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.reason.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [returns, searchTerm]
+  );
+
+  const paginatedReturns = filteredReturns.slice(
+    (activePage - 1) * itemsPerPage,
+    activePage * itemsPerPage
+  );
+  const totalPages = Math.ceil(filteredReturns.length / itemsPerPage);
+
+  const isManager = user?.role === 'manager' || user?.role === 'admin';
+  const totalRefunds = returns.reduce((s, r) => s + (r.refund_amount ?? 0), 0);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayReturns = returns.filter(r => r.return_date === todayStr || r.created_at?.startsWith(todayStr));
+  const pendingReturns = returns.filter(r => r.status === 'pending').length;
+  const resolvedReturns = returns.filter(r => r.status === 'resolved').length;
+
+  const productMap = useMemo(
+    () => Object.fromEntries(products.map((p) => [p.id, p])),
+    [products]
+  );
+
+  if (loading && !returnsData) return <LoadingState message="Loading return records..." />;
+  if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
+
+  return (
+    <Container size="xl" py="xl">
       <PageHeader
         title="Returns"
         description="Manage product returns and refunds"
-        showRefresh={true}
+        showRefresh
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        children={
-          <div className="flex gap-2 space-x-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
-              <Input
-                type="search"
-                placeholder="Search returns..."
-                className="pl-8 w-[200px] md:w-[300px]"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => handleExport('excel')}>
-                  Export to Excel
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('csv')}>
-                  Export to CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport('pdf')}>
-                  Export to PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <Button onClick={() => resetForm()}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Return
-                </Button>
-              </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>
-                  {editingReturn ? "Edit Return" : "New Return"}
-                </DialogTitle>
-                <DialogDescription>
-                  {editingReturn ? "Update return information" : "Create a new return record"}
-                </DialogDescription>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="customer_name"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Name *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter customer name" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="customer_phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Phone *</FormLabel>
-                        <FormControl>
-                          <Input placeholder="Enter phone number" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="customer_email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Customer Email</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="Enter email address" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="product_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Product *</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select a product" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {products.map((product) => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.phone_model} - {product.part_type} {product.variant}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="reason"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reason for Return *</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Enter reason for return" rows={3} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="action_taken"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Action Taken *</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="refund">Refund</SelectItem>
-                            <SelectItem value="repair">Repair</SelectItem>
-                            <SelectItem value="exchange">Exchange</SelectItem>
-                            <SelectItem value="replacement">Replacement</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="refund_amount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Refund Amount</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="Enter refund amount"
-                            {...field}
-                            onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Enter additional notes" rows={3} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={!form.formState.isValid}>
-                    {editingReturn ? "Update" : "Create"} Return
-                  </Button>
-                </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-          </div>
-        }
-      />
+        onRefresh={() => handleRefresh(refetch)}
+      >
+        <Button onClick={() => setModal({ type: "create" })} leftSection={<Plus size={16} />}>
+          New Return
+        </Button>
+      </PageHeader>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Returns</CardTitle>
-            <RotateCcw className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalReturns}</div>
-            <p className="text-xs text-muted-foreground">
-              {pendingReturns} pending, {resolvedReturns} resolved
-            </p>
-          </CardContent>
-        </Card>
+      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="lg" mb="xl">
+        {isManager ? (
+          <>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    TOTAL RETURNS
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {returns.length}
+                  </Text>
+                </Stack>
+                <RotateCcw size={24} color="black" />
+              </Group>
+            </Paper>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    TOTAL REFUNDS
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {formatCurrency(totalRefunds)}
+                  </Text>
+                </Stack>
+                <DollarSign size={24} color="black" />
+              </Group>
+            </Paper>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    PENDING
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {pendingReturns}
+                  </Text>
+                </Stack>
+                <RotateCcw size={24} color="black" />
+              </Group>
+            </Paper>
+          </>
+        ) : (
+          <>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    TODAY'S RETURNS
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {todayReturns.length}
+                  </Text>
+                </Stack>
+                <RotateCcw size={24} color="black" />
+              </Group>
+            </Paper>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    PENDING
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {pendingReturns}
+                  </Text>
+                </Stack>
+                <RotateCcw size={24} color="black" />
+              </Group>
+            </Paper>
+            <Paper className="block-card" p="md">
+              <Group justify="space-between">
+                <Stack gap={0}>
+                  <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: "1px" }}>
+                    RESOLVED
+                  </Text>
+                  <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
+                    {resolvedReturns}
+                  </Text>
+                </Stack>
+                <RotateCcw size={24} color="black" />
+              </Group>
+            </Paper>
+          </>
+        )}
+      </SimpleGrid>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Refunds</CardTitle>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${totalRefunds.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              Total refund amount issued
-            </p>
-          </CardContent>
-        </Card>
+      {/* Table */}
+      <Paper className="block-card" p={0} style={{ overflow: "hidden" }}>
+        <Box p="md" style={{ borderBottom: '1px solid var(--echo-border)' }}>
+          <TextInput
+            placeholder="Search by customer or reason..."
+            leftSection={<Search size={16} />}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ maxWidth: 400 }}
+            className="block-input"
+          />
+        </Box>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Average Refund</CardTitle>
-            <Package className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">${averageRefund.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground">
-              Top reason: {topReason.reason} ({topReason.count} cases)
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+        <Table verticalSpacing="sm" style={{ borderCollapse: "collapse" }}>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Customer</Table.Th>
+              <Table.Th>Product</Table.Th>
+              <Table.Th>Action</Table.Th>
+              <Table.Th>Status</Table.Th>
+              <Table.Th>Refund</Table.Th>
+              <Table.Th>Date</Table.Th>
+              <Table.Th>Actions</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {paginatedReturns.length === 0 ? (
+              <Table.Tr>
+                <Table.Td colSpan={7}>
+                  <Text size="sm" color="dimmed" fw={600} ta="center" py="xl">
+                    No returns found
+                  </Text>
+                </Table.Td>
+              </Table.Tr>
+            ) : (
+              paginatedReturns.map((item) => (
+                <Table.Tr key={item.id}>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={800}>{item.customer_name}</Text>
+                    <Text size="xs" color="dimmed" fw={500}>{item.customer_phone}</Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={700}>
+                      {item.product?.name ?? productMap[item.product_id]?.name ?? "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <ActionBadge action={item.action_taken} />
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <StatusBadge status={item.status} />
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={800}>{formatCurrency(item.refund_amount ?? 0)}</Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Text size="sm" fw={500}>
+                      {new Date(item.return_date).toLocaleDateString()}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td style={{ borderBottom: "1px solid black" }}>
+                    <Menu position="bottom-end">
+                      <Menu.Target>
+                        <ActionIcon variant="subtle" color="dark">
+                          <MoreVertical size={16} />
+                        </ActionIcon>
+                      </Menu.Target>
+                      <Menu.Dropdown>
+                        <Menu.Item
+                          leftSection={<Eye size={14} />}
+                          onClick={() => setModal({ type: "view", ret: item })}
+                          fw={700}
+                        >
+                          View / Update Status
+                        </Menu.Item>
+                      </Menu.Dropdown>
+                    </Menu>
+                  </Table.Td>
+                </Table.Tr>
+              ))
+            )}
+          </Table.Tbody>
+        </Table>
 
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-lg sm:text-xl">Return Records</CardTitle>
-          <CardDescription className="text-sm">
-            {filteredReturns.length} return records found {searchTerm && `for "${searchTerm}"`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0 sm:p-6">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="min-w-[150px]">Customer</TableHead>
-                  <TableHead className="min-w-[150px]">Product</TableHead>
-                  <TableHead className="min-w-[120px] hidden sm:table-cell">Reason</TableHead>
-                  <TableHead className="min-w-[100px]">Action</TableHead>
-                  <TableHead className="min-w-[100px]">Status</TableHead>
-                  <TableHead className="min-w-[100px] hidden sm:table-cell">Date</TableHead>
-                  <TableHead className="min-w-[100px] hidden sm:table-cell">Amount</TableHead>
-                  <TableHead className="min-w-[80px]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {currentItems.map((returnItem) => (
-                  <TableRow key={returnItem.id}>
-                    <TableCell className="py-3 sm:py-4">
-                      <div>
-                        <div className="font-medium text-sm sm:text-base">{returnItem.customer_name}</div>
-                        <div className="text-xs sm:text-sm text-gray-500">{returnItem.customer_phone}</div>
-                        <div className="text-xs text-gray-500 sm:hidden mt-1">
-                          {new Date(returnItem.return_date).toLocaleDateString()}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-3 sm:py-4">
-                      <div className="text-sm sm:text-base">
-                        {returnItem.product ?
-                          `${(returnItem.product as any).phone_model} - ${(returnItem.product as any).part_type} ${(returnItem.product as any).variant}` :
-                          `Product ID: ${returnItem.product_id}`
-                        }
-                        <div className="text-xs text-gray-500 sm:hidden mt-1 truncate" title={returnItem.reason}>
-                          {returnItem.reason}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-3 sm:py-4 hidden sm:table-cell">
-                      <div className="max-w-xs truncate" title={returnItem.reason}>
-                        {returnItem.reason}
-                      </div>
-                    </TableCell>
-                    <TableCell className="py-3 sm:py-4">{getActionBadge(returnItem.action_taken)}</TableCell>
-                    <TableCell className="py-3 sm:py-4">{getStatusBadge(returnItem.status)}</TableCell>
-                    <TableCell className="py-3 sm:py-4 hidden sm:table-cell text-sm">{new Date(returnItem.return_date).toLocaleDateString()}</TableCell>
-                    <TableCell className="py-3 sm:py-4 hidden sm:table-cell text-sm">
-                      {returnItem.refund_amount ? `$${returnItem.refund_amount.toFixed(2)}` : "-"}
-                    </TableCell>
-                    <TableCell className="py-3 sm:py-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => handleEdit(returnItem)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(returnItem.id)}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          {renderPagination()}
-        </CardContent>
-      </Card>
-    </div>
+        {totalPages > 1 && (
+          <Box p="md">
+            <Pagination total={totalPages} value={activePage} onChange={setPage} />
+          </Box>
+        )}
+      </Paper>
+
+      {/* Modals */}
+      {modal?.type === "create" && (
+        <CreateReturnModal
+          products={products}
+          onClose={() => setModal(null)}
+          onCreated={refetch}
+        />
+      )}
+      {modal?.type === "view" && (
+        <ReturnDetailModal
+          ret={modal.ret}
+          products={products}
+          onClose={() => setModal(null)}
+          onMutated={refetch}
+        />
+      )}
+    </Container>
   );
 }

@@ -1,35 +1,28 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useFetch } from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
-import { ProductCategoryCreateSchema, ProductCategoryUpdateSchema, type ProductCategoryCreate, type ProductCategoryUpdate } from "@/lib/schemas";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { ProductCategory as ProductCategoryType } from "@/types";
+import React, { useEffect, useState } from "react";
+import { useFetch, apiRequest } from "@/lib/api";
+import { useAuth } from "../contexts/AuthContext";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import Container from "@/components/Container";
-import PageHeader from "@/components/PageHeader";
-import { LoadingState } from "@/components/ui/loading-state";
-import { ErrorState } from "@/components/ui/error-state";
+  Button,
+  Card,
+  Badge,
+  TextInput,
+  Textarea,
+  Group,
+  Title,
+  Text,
+  SimpleGrid,
+  Stack,
+  Container,
+  ActionIcon,
+  Menu,
+  Modal,
+  ColorInput,
+  Box,
+  Paper
+} from "@mantine/core";
+import { LoadingState } from "@/components/LoadingState";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
 import {
   Plus,
@@ -39,67 +32,58 @@ import {
   Trash2,
   Eye,
   Search,
-  Filter
+  RefreshCw
 } from "lucide-react";
 import { Link } from "react-router";
-
-
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { toast } from "../components/Toast";
+import { ProductCategoryCreateSchema, type ProductCategoryCreate } from "@/lib/schemas";
+import { ProductCategory as ProductCategoryType } from "@/types";
 
 export default function Categories() {
+  const { user } = useAuth();
   const { data: categories, loading, error, refetch } = useFetch<ProductCategoryType[]>("/api/categories");
   const { isRefreshing, handleRefresh } = usePageState();
   const [searchTerm, setSearchTerm] = useState("");
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<ProductCategoryType | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<ProductCategoryType | null>(null);
 
-  // React Hook Form with Zod validation
   const form = useForm<ProductCategoryCreate>({
     resolver: zodResolver(ProductCategoryCreateSchema),
     defaultValues: {
-    name: "",
-    description: "",
-    icon: "",
-    color: "#3B82F6"
+      name: "",
+      description: "",
+      icon: "",
+      color: "#3B82F6"
     }
   });
 
   const handleInitializeCategories = async () => {
     try {
-      const response = await fetch("/api/categories/initialize", {
+      const result = await apiRequest<{ categories_created: number; subcategories_created: number }>("/api/categories/initialize", {
         method: "POST"
       });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Successfully initialized ${result.categories_created} categories and ${result.subcategories_created} subcategories!`);
-        refetch();
-      } else {
-        const error = await response.json();
-        toast.error(`Failed to initialize categories: ${error.detail}`);
-      }
-    } catch (error) {
+      toast.success(`Successfully initialized ${result.categories_created} categories and ${result.subcategories_created} subcategories!`);
+      refetch();
+    } catch (error: unknown) {
       console.error("Failed to initialize categories:", error);
-      toast.error("Failed to initialize categories. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Failed to initialize categories. Please try again.");
     }
   };
 
   const handleResetCategories = async () => {
     if (confirm("Are you sure you want to reset all categories and subcategories? This action cannot be undone.")) {
       try {
-        const response = await fetch("/api/categories/reset", {
+        await apiRequest("/api/categories/reset", {
           method: "POST"
         });
-        if (response.ok) {
-          toast.success("All categories and subcategories have been reset!");
-          refetch();
-        } else {
-          const error = await response.json();
-          toast.error(`Failed to reset categories: ${error.detail}`);
-        }
-      } catch (error) {
+        toast.success("All categories and subcategories have been reset!");
+        refetch();
+      } catch (error: unknown) {
         console.error("Failed to reset categories:", error);
-        toast.error("Failed to reset categories. Please try again.");
+        toast.error(error instanceof Error ? error.message : "Failed to reset categories. Please try again.");
       }
     }
   };
@@ -111,73 +95,66 @@ export default function Categories() {
         : "/api/categories";
       const method = isEditMode ? "PUT" : "POST";
 
-      const response = await fetch(url, {
+      // Sanitize data: convert empty strings to null for optional fields
+      const submissionData = {
+        ...data,
+        description: data.description === "" ? null : data.description,
+        icon: data.icon === "" ? null : data.icon,
+        color: data.color === "" ? null : data.color
+      };
+
+      await apiRequest(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
+        body: JSON.stringify(submissionData),
       });
 
-      if (response.ok) {
-        toast.success(isEditMode ? "Category updated successfully!" : "Category created successfully!");
-        refetch();
-        setIsCreateDialogOpen(false);
-        setIsEditDialogOpen(false);
-        setIsEditMode(false);
-        setSelectedCategory(null);
-        form.reset();
-      } else {
-        toast.error(`Failed to ${isEditMode ? 'update' : 'create'} category. Please try again.`);
-      }
-    } catch (error) {
+      toast.success(isEditMode ? "Category updated successfully!" : "Category created successfully!");
+      refetch();
+      setIsModalOpen(false);
+      form.reset();
+    } catch (error: unknown) {
       console.error(`Failed to ${isEditMode ? 'update' : 'create'} category:`, error);
-      toast.error(`Failed to ${isEditMode ? 'update' : 'create'} category. Please check the console for details.`);
+      toast.error(error instanceof Error ? error.message : `Failed to ${isEditMode ? 'update' : 'create'} category. Please try again.`);
     }
   };
 
-  const handleEdit = (category: ProductCategoryType) => {
-    setSelectedCategory(category);
+  const openCreateModal = () => {
+    setIsEditMode(false);
+    setSelectedCategory(null);
+    form.reset({
+      name: "",
+      description: "",
+      icon: "",
+      color: "#3B82F6"
+    });
+    setIsModalOpen(true);
+  };
+
+  const openEditModal = (category: ProductCategoryType) => {
     setIsEditMode(true);
+    setSelectedCategory(category);
     form.reset({
       name: category.name,
       description: category.description || "",
       icon: category.icon || "",
       color: category.color || "#3B82F6"
     });
-    setIsEditDialogOpen(true);
+    setIsModalOpen(true);
   };
-
 
   const handleDeleteCategory = async (categoryId: string) => {
     if (!confirm("Are you sure you want to delete this category?")) return;
 
     try {
-      const response = await fetch(`/api/categories/${categoryId}`, {
+      await apiRequest(`/api/categories/${categoryId}`, {
         method: "DELETE",
       });
-
-      if (response.ok) {
-        toast.success("Category deleted successfully!");
-        refetch();
-      } else {
-        toast.error("Failed to delete category. Please try again.");
-      }
-    } catch (error) {
+      toast.success("Category deleted successfully!");
+      refetch();
+    } catch (error: unknown) {
       console.error("Failed to delete category:", error);
-      toast.error("Failed to delete category. Please check the console for details.");
+      toast.error(error instanceof Error ? error.message : "Failed to delete category. Please try again.");
     }
-  };
-
-  const openEditDialog = (category: ProductCategoryType) => {
-    setSelectedCategory(category);
-    form.reset({
-      name: category.name,
-      description: category.description || "",
-      icon: category.icon || "",
-      color: category.color || "#3B82F6"
-    });
-    setIsEditDialogOpen(true);
   };
 
   const filteredCategories = categories?.filter(category =>
@@ -185,307 +162,149 @@ export default function Categories() {
     (category.description && category.description.toLowerCase().includes(searchTerm.toLowerCase()))
   ) || [];
 
-  if (loading) {
-    return (
-      <Container>
-        <LoadingState
-          title="Categories"
-          description="Loading your product categories..."
-          cardCount={0}
-          showCharts={false}
-        />
-      </Container>
-    );
-  }
-
-  if (error) {
-    return (
-      <Container>
-        <ErrorState
-          title="Error Loading Categories"
-          description={`Failed to load categories: ${error.message}`}
-          onRetry={refetch}
-          isRetrying={isRefreshing}
-        />
-      </Container>
-    );
-  }
+  if (loading) return <LoadingState message="Loading your product categories..." />;
+  if (error) return <ErrorDisplay message={error.message} onRetry={refetch} />;
 
   return (
-    <div className="container mx-auto px-4 py-4 sm:py-8">
+    <Container size="xl" py="xl">
       <PageHeader
         title="Product Categories"
         description="Manage your product categories and their organization"
         showRefresh={true}
         isRefreshing={isRefreshing}
-        onRefresh={handleRefresh}
-        children={
-          <Button onClick={() => setIsCreateDialogOpen(true)} className="w-full sm:w-auto">
-            <Plus className="w-4 h-4 mr-2" />
-            <span className="hidden sm:inline">Create Category</span>
-            <span className="sm:hidden">Create</span>
+        onRefresh={() => handleRefresh(refetch)}
+      >
+        {(user?.role === 'admin' || user?.role === 'manager') && (
+          <Button onClick={openCreateModal} leftSection={<Plus size={16} />}>
+            Create Category
           </Button>
-        }
-      />
+        )}
+      </PageHeader>
 
-      <div className="space-y-6">
-        {/* Search and Filter Bar */}
-        <div className="flex flex-col space-y-4 mb-6">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <Input
-              placeholder="Search categories..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={handleInitializeCategories} className="text-xs sm:text-sm">
-              <Settings className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">Initialize Default Categories</span>
-              <span className="sm:hidden">Initialize</span>
-            </Button>
-            <Button variant="outline" onClick={handleResetCategories} className="text-red-600 hover:text-red-700 text-xs sm:text-sm">
-              <Trash2 className="w-4 h-4 mr-2" />
-              <span className="hidden sm:inline">Reset All</span>
-              <span className="sm:hidden">Reset</span>
-            </Button>
-          </div>
-        </div>
+      <Stack gap="lg">
+        <Group>
+          <TextInput
+            placeholder="Search categories..."
+            leftSection={<Search size={16} />}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={{ flex: 1 }}
+            className="block-input"
+          />
+          {user?.role === 'admin' && (
+            <Group>
+              <Button variant="outline" color="dark" onClick={handleInitializeCategories} leftSection={<Settings size={16} />} className="block-button">
+                Initialize
+              </Button>
+              <Button variant="outline" color="dark" onClick={handleResetCategories} leftSection={<Trash2 size={16} />} className="block-button" style={{ background: '#fff0f0' }}>
+                Reset
+              </Button>
+            </Group>
+          )}
+        </Group>
 
-        {/* Categories Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
           {filteredCategories.map((category) => (
-            <Card key={category.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex gap-2 items-center justify-between">
-                  <CardTitle className="flex gap-2 items-center space-x-2 text-lg">
-                    {category.icon && <span className="text-2xl">{category.icon}</span>}
-                    <span>{category.name}</span>
-                  </CardTitle>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm">
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link to={`/categories/${category.id}/subcategories`}>
-                          <Eye className="w-4 h-4 mr-2" />
-                          View Subcategories
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => openEditDialog(category)}>
-                        <Edit className="w-4 h-4 mr-2" />
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => handleDeleteCategory(category.id)}
-                        className="text-red-600"
-                      >
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-                  {category.description || "No description available"}
-                </p>
-                <div className="flex gap-2 items-center justify-between">
-                  <Badge variant={category.is_active ? "default" : "secondary"}>
-                    {category.is_active ? "Active" : "Inactive"}
-                  </Badge>
-                  {category.color && (
-                    <div
-                      className="w-6 h-6 rounded border"
-                      style={{ backgroundColor: category.color }}
-                    />
-                  )}
-                </div>
-              </CardContent>
+            <Card key={category.id} className="block-card" padding="lg">
+              <Group justify="space-between" mb="xs">
+                <Group gap="sm">
+                  {category.icon && <Text size="xl">{category.icon}</Text>}
+                  <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{category.name}</Title>
+                </Group>
+                <Menu position="bottom-end">
+                  <Menu.Target>
+                    <ActionIcon variant="subtle" color="dark"><MoreVertical size={16} /></ActionIcon>
+                  </Menu.Target>
+                  <Menu.Dropdown>
+                    <Menu.Item leftSection={<Eye size={14} />} component={Link} to={`/categories/${category.id}/subcategories`} fw={700}>
+                      View Subcategories
+                    </Menu.Item>
+                    {(user?.role === 'admin' || user?.role === 'manager') && (
+                      <Menu.Item leftSection={<Edit size={14} />} onClick={() => openEditModal(category)} fw={700}>Edit</Menu.Item>
+                    )}
+                    {user?.role === 'admin' && (
+                      <Menu.Item color="black" leftSection={<Trash2 size={14} />} onClick={() => handleDeleteCategory(category.id)} fw={700} style={{ background: '#fff0f0' }}>Delete</Menu.Item>
+                    )}
+                  </Menu.Dropdown>
+                </Menu>
+              </Group>
+
+              <Text size="sm" color="dimmed" mb="md" lineClamp={2} fw={500}>
+                {category.description || "No description available"}
+              </Text>
+
+              <Group justify="space-between" align="center">
+                <Badge color="dark" variant="outline" style={{ borderRadius: 0, border: '1px solid black' }}>
+                  {category.is_active ? "Active" : "Inactive"}
+                </Badge>
+                {category.color && (
+                  <Box w={20} h={20} style={{ backgroundColor: category.color, borderRadius: '6px' }} />
+                )}
+              </Group>
             </Card>
           ))}
-        </div>
+        </SimpleGrid>
 
         {filteredCategories.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-gray-400 mb-4">
-              <Settings className="w-16 h-16 mx-auto" />
-            </div>
-            <p className="text-gray-500 mb-2">No categories found</p>
-            <p className="text-sm text-gray-400 mb-4">
-              {searchTerm ? "Try adjusting your search terms" : "Create your first category to get started"}
-            </p>
-            {!searchTerm && (
-              <Button onClick={() => setIsCreateDialogOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Create Category
-              </Button>
-            )}
-          </div>
+          <Paper className="block-card" p="xl">
+            <Stack align="center" gap="xs">
+              <Settings size={48} color="black" />
+              <Text color="dimmed" fw={700}>No categories found</Text>
+              {!searchTerm && (
+                <Button onClick={openCreateModal} variant="outline" color="dark" className="block-button" mt="md">
+                  Create your first category
+                </Button>
+              )}
+            </Stack>
+          </Paper>
         )}
-      </div>
+      </Stack>
 
-      {/* Create Category Dialog */}
-      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Create New Category</DialogTitle>
-            <DialogDescription>
-              Add a new product category to organize your inventory.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-              <FormField
+      <Modal opened={isModalOpen} onClose={() => setIsModalOpen(false)} title={isEditMode ? "Edit Category" : "Create New Category"} centered>
+        <form onSubmit={form.handleSubmit(handleSubmit)}>
+          <Stack gap="md">
+            <TextInput
+              label="NAME"
+              placeholder="CATEGORY NAME"
+              required
+              {...form.register("name")}
+              error={form.formState.errors.name?.message}
+              className="block-input"
+            />
+            <Textarea
+              label="DESCRIPTION"
+              placeholder="CATEGORY DESCRIPTION"
+              minRows={3}
+              {...form.register("description")}
+              className="block-input"
+            />
+            <Group grow align="flex-start">
+              <TextInput
+                label="ICON"
+                placeholder="📱"
+                {...form.register("icon")}
+                className="block-input"
+              />
+              <Controller
+                name="color"
                 control={form.control}
-                name="name"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Category name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                  <ColorInput
+                    label="COLOR"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    className="block-input"
+                  />
                 )}
               />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Category description" rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="icon"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Icon</FormLabel>
-                      <FormControl>
-                        <Input placeholder="📱" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="color"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Color</FormLabel>
-                      <FormControl>
-                        <Input type="color" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-            </div>
-            <div className="flex gap-2 justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
-                Cancel
-              </Button>
-                <Button type="submit" disabled={!form.formState.isValid}>
-                  Create Category
-                </Button>
-            </div>
-          </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Category Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Category</DialogTitle>
-            <DialogDescription>
-              Update the category information below.
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Category name" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl>
-                      <Textarea placeholder="Category description" rows={3} {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="icon"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Icon</FormLabel>
-                      <FormControl>
-                        <Input placeholder="📱" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="color"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Color</FormLabel>
-                      <FormControl>
-                        <Input type="color" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-            </div>
-            <div className="flex gap-2 justify-end space-x-2">
-              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                Cancel
-              </Button>
-                <Button type="submit" disabled={!form.formState.isValid}>
-                  Update Category
-                </Button>
-            </div>
-          </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </div>
+            </Group>
+            <Group justify="flex-end" mt="xl">
+              <Button variant="light" color="gray" onClick={() => setIsModalOpen(false)}>CANCEL</Button>
+              <Button type="submit" className="block-button" loading={form.formState.isSubmitting}>{isEditMode ? "UPDATE" : "CREATE"} CATEGORY</Button>
+            </Group>
+          </Stack>
+        </form>
+      </Modal>
+    </Container>
   );
 }

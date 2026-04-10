@@ -5,11 +5,14 @@ from uuid import UUID
 from datetime import date
 
 from ..database import get_session
-from ..models import (
-    Expense, ExpenseCreate, ExpenseUpdate, ExpenseCategory
+from ..models import Expense, ExpenseCreate, ExpenseUpdate, ExpenseCategory
+
+from ..dependencies import get_current_user, require_manager
+
+router = APIRouter(
+    prefix="/expenses", tags=["expenses"], dependencies=[Depends(require_manager)]
 )
 
-router = APIRouter(prefix="/expenses", tags=["expenses"])
 
 @router.get("/", response_model=List[Expense])
 def get_expenses(
@@ -18,7 +21,7 @@ def get_expenses(
     category: Optional[ExpenseCategory] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Get all expenses with optional filtering"""
     query = select(Expense)
@@ -34,6 +37,7 @@ def get_expenses(
 
     return session.exec(query.offset(skip).limit(limit)).all()
 
+
 @router.post("/", response_model=Expense, status_code=status.HTTP_201_CREATED)
 def create_expense(expense: ExpenseCreate, session: Session = Depends(get_session)):
     """Create a new expense"""
@@ -43,6 +47,7 @@ def create_expense(expense: ExpenseCreate, session: Session = Depends(get_sessio
     session.refresh(db_expense)
     return db_expense
 
+
 @router.get("/{expense_id}", response_model=Expense)
 def get_expense(expense_id: UUID, session: Session = Depends(get_session)):
     """Get a specific expense by ID"""
@@ -51,11 +56,12 @@ def get_expense(expense_id: UUID, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Expense not found")
     return expense
 
+
 @router.put("/{expense_id}", response_model=Expense)
 def update_expense(
     expense_id: UUID,
     expense_update: ExpenseUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
     """Update an expense"""
     expense = session.get(Expense, expense_id)
@@ -70,6 +76,7 @@ def update_expense(
     session.commit()
     session.refresh(expense)
     return expense
+
 
 @router.delete("/{expense_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_expense(expense_id: UUID, session: Session = Depends(get_session)):

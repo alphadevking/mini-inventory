@@ -59,7 +59,7 @@ Write-Host ""
 Write-Host "🚀 Starting Backend Server..." -ForegroundColor Green
 $backendJob = Start-Job -ScriptBlock {
     Set-Location $using:PWD
-    pipenv run uvicorn api.main:app --reload --port 9000
+    pipenv run uvicorn api.main:app --reload --reload-dir api --port 9000
 }
 
 # Wait a moment for backend to start
