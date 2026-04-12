@@ -11,7 +11,7 @@ interface FetchState<T> {
   error: Error | null;
 }
 
-export const API_BASE_URL = 'http://localhost:9000';
+export const API_BASE_URL = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:9000';
 
 // ─── Core request helper ──────────────────────────────────────────────────────
 
