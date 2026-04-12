@@ -73,7 +73,11 @@ MAX_PAGE_SIZE = get_env_int("MAX_PAGE_SIZE", 1000)
 def get_database_url() -> str:
     """Get database URL based on environment configuration"""
     if DB_TYPE.lower() == "postgres":
-        # PostgreSQL configuration
+        # If DATABASE_URL is already provided as a full connection string, use it
+        if DATABASE_URL and DATABASE_URL.startswith("postgresql"):
+            return DATABASE_URL
+
+        # Otherwise, try to construct it from individual PostgreSQL configuration variables
         user = os.getenv("DB_USER")
         password = os.getenv("DB_PASSWORD")
         host = os.getenv("DB_HOST")
@@ -84,7 +88,7 @@ def get_database_url() -> str:
             return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}?sslmode=require"
         else:
             raise ValueError(
-                "PostgreSQL selected but one or more variables are missing."
+                "PostgreSQL selected but DATABASE_URL is missing and individual connection variables are not set."
             )
 
     # Default to SQLite

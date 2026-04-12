@@ -27,6 +27,7 @@ from .models import (
     UserRole,
     ProductCategory,
     ProductSubcategory,
+    ProductAttributeDefinition,
     Product,
     Expense,
     ExpenseCategory,
@@ -83,7 +84,9 @@ def _seed_users(session: Session) -> dict[str, UUID]:
     Returns a mapping of username → user ID."""
     ids: dict[str, UUID] = {}
     for u in USERS:
-        existing = session.exec(select(User).where(User.username == u["username"])).first()
+        existing = session.exec(
+            select(User).where(User.username == u["username"])
+        ).first()
         if existing:
             ids[u["username"]] = existing.id
             continue
@@ -99,7 +102,9 @@ def _seed_users(session: Session) -> dict[str, UUID]:
         session.add(user)
         session.flush()
         ids[u["username"]] = user.id
-        print(f"  Created user '{u['username']}' ({u['role'].value}) — password: {u['password']}")
+        print(
+            f"  Created user '{u['username']}' ({u['role'].value}) — password: {u['password']}"
+        )
     return ids
 
 
@@ -118,8 +123,16 @@ def _seed_categories(session: Session) -> dict[str, UUID]:
             "icon": "smartphone",
             "color": "#3B82F6",
             "subcategories": [
-                {"name": "iPhone", "description": "Apple iPhones", "icon": "smartphone"},
-                {"name": "Android", "description": "Android smartphones", "icon": "smartphone"},
+                {
+                    "name": "iPhone",
+                    "description": "Apple iPhones",
+                    "icon": "smartphone",
+                },
+                {
+                    "name": "Android",
+                    "description": "Android smartphones",
+                    "icon": "smartphone",
+                },
             ],
         },
         {
@@ -129,7 +142,11 @@ def _seed_categories(session: Session) -> dict[str, UUID]:
             "color": "#10B981",
             "subcategories": [
                 {"name": "MacBook", "description": "Apple laptops", "icon": "laptop"},
-                {"name": "Windows Laptop", "description": "Windows laptops", "icon": "laptop"},
+                {
+                    "name": "Windows Laptop",
+                    "description": "Windows laptops",
+                    "icon": "laptop",
+                },
             ],
         },
         {
@@ -138,7 +155,11 @@ def _seed_categories(session: Session) -> dict[str, UUID]:
             "icon": "plug",
             "color": "#F59E0B",
             "subcategories": [
-                {"name": "Chargers", "description": "Charging cables and adapters", "icon": "plug"},
+                {
+                    "name": "Chargers",
+                    "description": "Charging cables and adapters",
+                    "icon": "plug",
+                },
                 {"name": "Cases", "description": "Protective cases", "icon": "shield"},
             ],
         },
@@ -148,8 +169,16 @@ def _seed_categories(session: Session) -> dict[str, UUID]:
             "icon": "wrench",
             "color": "#EF4444",
             "subcategories": [
-                {"name": "Screens", "description": "Replacement screens", "icon": "monitor"},
-                {"name": "Batteries", "description": "Replacement batteries", "icon": "battery"},
+                {
+                    "name": "Screens",
+                    "description": "Replacement screens",
+                    "icon": "monitor",
+                },
+                {
+                    "name": "Batteries",
+                    "description": "Replacement batteries",
+                    "icon": "battery",
+                },
             ],
         },
     ]
@@ -167,20 +196,124 @@ def _seed_categories(session: Session) -> dict[str, UUID]:
         cat_ids[cat_data["name"]] = category.id
 
         for sub_data in cat_data["subcategories"]:
-            session.add(ProductSubcategory(
-                name=sub_data["name"],
-                description=sub_data["description"],
-                icon=sub_data["icon"],
-                category_id=category.id,
-            ))
+            session.add(
+                ProductSubcategory(
+                    name=sub_data["name"],
+                    description=sub_data["description"],
+                    icon=sub_data["icon"],
+                    category_id=category.id,
+                )
+            )
 
     print(f"  Seeded {len(categories_data)} categories.")
     return cat_ids
 
 
 def _get_subcategory_id(session: Session, name: str) -> UUID | None:
-    sub = session.exec(select(ProductSubcategory).where(ProductSubcategory.name == name)).first()
+    sub = session.exec(
+        select(ProductSubcategory).where(ProductSubcategory.name == name)
+    ).first()
     return sub.id if sub else None
+
+
+def _seed_attribute_definitions(session: Session) -> None:
+    """Seed dynamic attribute definitions for subcategories."""
+    if session.exec(select(ProductAttributeDefinition)).first():
+        return
+
+    print("  Seeding attribute definitions...")
+
+    # Map subcategory names to their specific attributes
+    attr_map = {
+        "iPhone": [
+            {
+                "name": "storage",
+                "display_name": "Storage",
+                "data_type": "select",
+                "options": ["128GB", "256GB", "512GB", "1TB"],
+                "required": True,
+                "unit": "GB",
+            },
+            {
+                "name": "color",
+                "display_name": "Color",
+                "data_type": "string",
+                "required": True,
+            },
+            {
+                "name": "condition",
+                "display_name": "Condition",
+                "data_type": "select",
+                "options": ["New", "Like New", "Used"],
+                "required": True,
+            },
+        ],
+        "Android": [
+            {
+                "name": "storage",
+                "display_name": "Storage",
+                "data_type": "select",
+                "options": ["128GB", "256GB", "512GB"],
+                "required": True,
+                "unit": "GB",
+            },
+            {
+                "name": "ram",
+                "display_name": "RAM",
+                "data_type": "select",
+                "options": ["8GB", "12GB", "16GB"],
+                "required": True,
+                "unit": "GB",
+            },
+            {
+                "name": "color",
+                "display_name": "Color",
+                "data_type": "string",
+                "required": True,
+            },
+        ],
+        "Screens": [
+            {
+                "name": "quality",
+                "display_name": "Screen Quality",
+                "data_type": "select",
+                "options": ["OEM", "Premium Aftermarket", "Standard"],
+                "required": True,
+            },
+            {
+                "name": "warranty_period",
+                "display_name": "Warranty Period",
+                "data_type": "string",
+                "default_value": "90 days",
+            },
+        ],
+        "Batteries": [
+            {
+                "name": "capacity",
+                "display_name": "Capacity",
+                "data_type": "number",
+                "unit": "mAh",
+                "required": True,
+            },
+            {
+                "name": "cycle_count",
+                "display_name": "Cycle Count",
+                "data_type": "number",
+                "required": False,
+            },
+        ],
+    }
+
+    for sub_name, attrs in attr_map.items():
+        sub_id = _get_subcategory_id(session, sub_name)
+        if not sub_id:
+            continue
+
+        for attr in attrs:
+            session.add(ProductAttributeDefinition(subcategory_id=sub_id, **attr))
+
+    session.flush()
+    print(f"  Seeded attribute definitions for {len(attr_map)} subcategories.")
 
 
 def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
@@ -209,6 +342,11 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
             current_stock=8,
             low_stock_threshold=2,
             is_active=True,
+            attributes={
+                "storage": "256GB",
+                "color": "Black Titanium",
+                "condition": "New",
+            },
         ),
         Product(
             name="iPhone 14",
@@ -222,6 +360,7 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
             current_stock=5,
             low_stock_threshold=2,
             is_active=True,
+            attributes={"storage": "128GB", "color": "White", "condition": "Like New"},
         ),
         Product(
             name="Samsung Galaxy S24",
@@ -235,6 +374,12 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
             current_stock=6,
             low_stock_threshold=2,
             is_active=True,
+            attributes={
+                "storage": "256GB",
+                "ram": "8GB",
+                "color": "Gray",
+                "condition": "New",
+            },
         ),
         Product(
             name="iPhone 15 Pro Screen (OEM)",
@@ -248,6 +393,7 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
             current_stock=10,
             low_stock_threshold=3,
             is_active=True,
+            attributes={"quality": "OEM"},
         ),
         Product(
             name="iPhone 14 Battery (OEM)",
@@ -261,6 +407,7 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
             current_stock=15,
             low_stock_threshold=4,
             is_active=True,
+            attributes={"capacity": 3279, "cycle_count": 0},
         ),
         Product(
             name="USB-C Charger 65W",
@@ -288,6 +435,7 @@ def _seed_products(session: Session, cat_ids: dict[str, UUID]) -> list[UUID]:
 def _seed_repairs(session: Session, admin_id: UUID, technician_id: UUID) -> None:
     existing = session.exec(select(Product)).first()  # just a guard — real guard below
     from .models import Repair
+
     if session.exec(select(Repair)).first():
         return
 
@@ -344,6 +492,7 @@ def _seed_repairs(session: Session, admin_id: UUID, technician_id: UUID) -> None
 
 def _seed_sales(session: Session, admin_id: UUID, product_ids: list[UUID]) -> None:
     from .models import Sale
+
     if session.exec(select(Sale)).first():
         return
 
@@ -389,6 +538,7 @@ def _seed_sales(session: Session, admin_id: UUID, product_ids: list[UUID]) -> No
 
 def _seed_expenses(session: Session) -> None:
     from .models import Expense
+
     if session.exec(select(Expense)).first():
         return
 
@@ -434,6 +584,7 @@ def seed_database() -> None:
         # 2. Categories
         print("\n[2/5] Categories")
         cat_ids = _seed_categories(session)
+        _seed_attribute_definitions(session)
         session.commit()
 
         # 3. Products
@@ -457,7 +608,9 @@ def seed_database() -> None:
     print("\n=== Seeding complete ===")
     print("\nDefault credentials:")
     for u in USERS:
-        print(f"  {u['role'].value:12s}  username={u['username']}  password={u['password']}")
+        print(
+            f"  {u['role'].value:12s}  username={u['username']}  password={u['password']}"
+        )
     print()
 
 
