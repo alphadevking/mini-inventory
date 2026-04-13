@@ -493,7 +493,7 @@ export default function Sales() {
       <Modal
         opened={!!viewingSale}
         onClose={() => setViewingSale(null)}
-        title={viewingSale ? `Sale SALE-${String(viewingSale.sale_number).padStart(5, '0')}` : ''}
+        title={viewingSale ? `Sale SALE-${String(viewingSale.sale_number).padStart(5, '0')}` : 'Sale Details'}
         size="lg"
       >
         {viewingSale && (

@@ -224,7 +224,7 @@ export default function UsersPage() {
       <Modal
         opened={createOpen}
         onClose={() => { setCreateOpen(false); createForm.reset(); }}
-        title={<Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Add User</Title>}
+        title="Add User"
         size="md"
       >
         <form onSubmit={handleCreate}>
@@ -256,11 +256,7 @@ export default function UsersPage() {
       <Modal
         opened={!!editTarget}
         onClose={() => setEditTarget(null)}
-        title={
-          <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>
-            Edit {editTarget?.username}
-          </Title>
-        }
+        title={editTarget ? `Edit ${editTarget.username}` : 'Edit User'}
         size="md"
       >
         <form onSubmit={handleEdit}>
