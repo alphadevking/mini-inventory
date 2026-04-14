@@ -72,10 +72,20 @@ class ReturnService:
                 )
 
         # Create return record
+        payload_data = payload.dict()
+        payload_data["status"] = ReturnStatus.approved  # auto-approve on creation
+        # Pull out FK fields that live on Return but not ReturnBase so we can
+        # pass them explicitly — avoids any "multiple values" conflict if
+        # ReturnCreate adds them later.
+        original_sale_id = payload_data.pop("original_sale_id", None)
+        original_sale_item_id = payload_data.pop("original_sale_item_id", None)
+        unit_id = payload_data.pop("unit_id", None)
         db_return = Return(
-            **payload.dict(),
+            **payload_data,
             created_by=created_by,
-            status=ReturnStatus.approved,  # creating a return auto-approves it
+            original_sale_id=original_sale_id,
+            original_sale_item_id=original_sale_item_id,
+            unit_id=unit_id,
         )
         session.add(db_return)
         session.flush()  # get db_return.id

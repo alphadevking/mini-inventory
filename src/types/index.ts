@@ -12,6 +12,7 @@ export type ExpenseCategory = "rent" | "utilities" | "supplies" | "equipment" | 
 export type UserRole = "admin" | "manager" | "technician" | "cashier";
 export type StockMovementType = "purchase" | "sale" | "repair_part" | "repair_part_removed" | "return_in" | "return_out" | "adjustment" | "initial";
 export type AuditAction = "create" | "update" | "delete" | "status_change";
+export type UnitStatus = "in_stock" | "sold" | "returned" | "in_repair" | "reserved";
 
 // ─── Product ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +63,50 @@ export interface Product {
   updated_at: string;
   category?: ProductCategory | null;
   subcategory?: ProductSubcategory | null;
+}
+
+// ─── Serialized Inventory — Physical Unit ────────────────────────────────────
+
+export interface ProductUnit {
+  id: string;
+  product_id: string;
+  serial_number: string;
+  imei?: string | null;
+  color?: string | null;
+  storage?: string | null;
+  condition?: string | null;
+  status: UnitStatus;
+  purchase_cost: number;
+  purchased_at: string;
+  sold_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductUnitCreate {
+  serial_number: string;
+  imei?: string;
+  color?: string;
+  storage?: string;
+  condition?: string;
+  purchase_cost: number;
+  purchased_at?: string;
+  notes?: string;
+}
+
+export interface ProductUnitBatchCreate {
+  units: ProductUnitCreate[];
+}
+
+export interface ProductUnitUpdate {
+  serial_number?: string;
+  imei?: string;
+  color?: string;
+  storage?: string;
+  condition?: string;
+  status?: UnitStatus;
+  notes?: string;
 }
 
 // ─── Stock Movement Ledger ────────────────────────────────────────────────────
@@ -116,6 +161,7 @@ export interface SaleItem {
   id: string;
   sale_id: string;
   product_id: string;
+  unit_id?: string | null;  // serialized: the specific ProductUnit sold
   quantity: number;
   unit_price: number;   // locked at point of sale
   unit_cost: number;    // locked at point of sale (for COGS)
@@ -148,6 +194,7 @@ export interface SaleItemInput {
   product_id: string;
   quantity: number;
   discount_per_item?: number;
+  unit_id?: string | null;   // required for serialized products; null clears a prior selection
 }
 
 export interface SaleCreateInput {

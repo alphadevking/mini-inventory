@@ -7,6 +7,7 @@ from .database import create_db_and_tables
 from .middleware import RequestTimingMiddleware
 from .routers import (
     products,
+    product_units,
     transactions,
     repairs,
     expenses,
@@ -40,6 +41,7 @@ app.add_middleware(
 # --- Routers ---
 app.include_router(auth.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
+app.include_router(product_units.router, prefix="/api")  # serialized inventory
 app.include_router(sales.router, prefix="/api")          # new — immutable sales
 app.include_router(transactions.router, prefix="/api")   # purchases only going forward
 app.include_router(repairs.router, prefix="/api")        # rewritten — service-backed

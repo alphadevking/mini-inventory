@@ -43,6 +43,8 @@ import {
 import { toast } from "../components/Toast";
 import { ProductCreateSchema, ProductUpdateSchema, type ProductCreate, type ProductUpdate } from "@/lib/schemas";
 import { Product } from "@/types";
+import ProductUnitsPanel from "@/components/ProductUnitsPanel";
+import { Cpu } from "lucide-react";
 
 export default function Products() {
   const { user } = useAuth();
@@ -58,6 +60,7 @@ export default function Products() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [unitsProduct, setUnitsProduct] = useState<Product | null>(null);
 
   const handleCreateProduct = async (data: ProductCreate | ProductUpdate) => {
     // Cast to ProductCreate since this is the create modal
@@ -278,6 +281,9 @@ export default function Products() {
                       <ActionIcon variant="subtle" color="dark"><MoreVertical size={16} /></ActionIcon>
                     </Menu.Target>
                     <Menu.Dropdown>
+                      <Menu.Item leftSection={<Cpu size={14} />} onClick={() => setUnitsProduct(product)} fw={700}>
+                        View Units
+                      </Menu.Item>
                       {(user?.role === 'admin' || user?.role === 'manager') && (
                         <Menu.Item leftSection={<Edit size={14} />} onClick={() => openEditDialog(product)} fw={700}>Edit</Menu.Item>
                       )}
@@ -298,6 +304,14 @@ export default function Products() {
           </Stack>
         )}
       </Paper>
+
+      {unitsProduct && (
+        <ProductUnitsPanel
+          product={unitsProduct}
+          opened={!!unitsProduct}
+          onClose={() => setUnitsProduct(null)}
+        />
+      )}
 
       <Modal opened={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} title="Add New Product" size="xl">
         <ProductFormZod

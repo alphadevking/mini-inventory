@@ -140,6 +140,8 @@ export const SaleItemInputSchema = z.object({
   product_id: z.string().uuid("Invalid product ID"),
   quantity: z.number().int().min(1, "Quantity must be at least 1"),
   discount_per_item: z.number().min(0).default(0),
+  // Serialized inventory: the specific physical unit being sold (optional for bulk items)
+  unit_id: z.string().uuid().optional().nullable(),
 });
 
 export const SaleCreateSchema = z.object({
@@ -218,6 +220,7 @@ export const ReturnCreateSchema = z.object({
   return_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   original_sale_id: z.string().uuid().optional().nullable(),
   original_sale_item_id: z.string().uuid().optional().nullable(),
+  unit_id: z.string().uuid().optional().nullable(),
   refund_amount: z.number().min(0).optional(),
   replacement_product_id: z.string().uuid("Invalid replacement product ID").optional().nullable(),
   notes: z.string().or(z.literal("")).optional().nullable(),

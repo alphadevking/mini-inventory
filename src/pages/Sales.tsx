@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { CURRENCY_SYMBOL } from '../config/app';
-import { useFetch, salesApi } from "@/lib/api";
+import { useFetch, salesApi, apiRequest } from "@/lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import {
   Button, TextInput, Textarea, Group, Text, SimpleGrid,
@@ -12,15 +12,186 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { PageHeader } from "@/components/PageHeader";
 import { usePageState } from "@/hooks/usePageState";
-import { Plus, Search, Download, Trash2, ChevronDown, ChevronUp, Eye, ShoppingCart } from "lucide-react";
+import { Plus, Search, Download, Trash2, ChevronDown, ChevronUp, Eye, ShoppingCart, Cpu } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import type { Sale, Product } from "@/types";
-import { useForm, Controller, useFieldArray, type Resolver } from "react-hook-form";
+import type { Sale, Product, ProductUnit } from "@/types";
+import { useForm, Controller, useFieldArray, type Resolver, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { SaleCreateSchema, type SaleCreate } from "@/lib/schemas";
 import { toast } from "../components/Toast";
 import { format } from "date-fns";
 import { v4 as uuidv4 } from 'uuid';
+
+// ── Unit selector hook ────────────────────────────────────────────────────────
+// Loads available (in_stock) units for a product whenever product_id changes.
+// `fetched` is true only after the first successful response — lets callers
+// distinguish "still loading" from "loaded but zero units".
+function useAvailableUnits(productId: string | null) {
+  const [units, setUnits] = useState<ProductUnit[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetched, setFetched] = useState(false);
+
+  useEffect(() => {
+    if (!productId) {
+      setUnits([]);
+      setFetched(false);
+      return;
+    }
+    setLoading(true);
+    setFetched(false);
+    apiRequest<ProductUnit[]>(
+      `/api/products/${productId}/units?status_filter=in_stock&limit=500`
+    )
+      .then((data) => { setUnits(data); setFetched(true); })
+      .catch(() => { setUnits([]); setFetched(true); })
+      .finally(() => setLoading(false));
+  }, [productId]);
+
+  return { units, loading, fetched };
+}
+
+// ── CartItemRow ───────────────────────────────────────────────────────────────
+// Renders one line item in the New Sale form. When the selected product has
+// serialized units, shows a unit selector (serial / IMEI) instead of a qty input.
+interface CartItemRowProps {
+  index: number;
+  form: UseFormReturn<SaleCreate>;
+  products: Product[];
+  lineItem: { product: Product | undefined; unitPrice: number; lineTotal: number };
+  selectedProductId: string | null;
+  // Passed down from the parent's form.watch("items") so this component
+  // re-renders when unit_id changes (form.watch inside a non-useForm component
+  // does not subscribe to re-renders on its own).
+  selectedUnitId: string | null | undefined;
+  canRemove: boolean;
+  onRemove: () => void;
+}
+
+function CartItemRow({ index, form, products, lineItem, selectedProductId, selectedUnitId, canRemove, onRemove }: CartItemRowProps) {
+  const { units, loading: unitsLoading, fetched } = useAvailableUnits(selectedProductId);
+  // Only show the unit picker once the fetch has resolved AND the product has units.
+  // Before fetched==true we show a loading indicator inside the qty field area instead.
+  const isSerializedProduct = fetched && units.length > 0;
+
+  return (
+    <Paper p="sm" style={{ border: '1px solid black' }}>
+      <Group align="flex-start" gap="sm" wrap="wrap">
+        <Controller
+          name={`items.${index}.product_id`}
+          control={form.control}
+          render={({ field: f }) => (
+            <Select
+              label="Product"
+              placeholder="Select product"
+              required
+              data={products.map(p => ({
+                value: p.id,
+                label: `${p.name} (Stock: ${p.current_stock})`,
+                disabled: p.current_stock === 0,
+              }))}
+              value={f.value}
+              onChange={(v) => {
+                f.onChange(v);
+                // Reset unit when product changes
+                form.setValue(`items.${index}.unit_id`, null);
+              }}
+              searchable
+              style={{ flex: 2, minWidth: 200 }}
+              className="block-input"
+            />
+          )}
+        />
+
+        {/* Unit picker — only rendered once we know this product has serial units */}
+        {isSerializedProduct && (
+          <Controller
+            name={`items.${index}.unit_id`}
+            control={form.control}
+            render={({ field: f }) => (
+              <Select
+                label={
+                  <Group gap={4}>
+                    <Cpu size={12} />
+                    <span>Unit (Serial / IMEI)</span>
+                  </Group>
+                }
+                placeholder="Select a unit"
+                data={units.map(u => ({
+                  value: u.id,
+                  label: [u.serial_number, u.imei, u.color, u.storage].filter(Boolean).join(" · "),
+                }))}
+                value={f.value ?? null}
+                onChange={(v) => {
+                  f.onChange(v);
+                  // Lock quantity to 1 for serialized units
+                  if (v) form.setValue(`items.${index}.quantity`, 1);
+                }}
+                searchable
+                clearable
+                style={{ flex: 2, minWidth: 200 }}
+                className="block-input"
+              />
+            )}
+          />
+        )}
+
+        {/* Quantity:
+            - Hidden when a unit is pinned (serialized — always qty 1)
+            - Shows "checking..." spinner while units are loading for a chosen product
+            - Shown normally for bulk products or when no unit is selected */}
+        {!selectedUnitId && (
+          <Controller
+            name={`items.${index}.quantity`}
+            control={form.control}
+            render={({ field: f }) => (
+              <NumberInput
+                label={selectedProductId && unitsLoading ? "Qty (checking...)" : "Qty"}
+                min={1}
+                max={lineItem.product?.current_stock}
+                value={f.value}
+                onChange={v => f.onChange(Number(v))}
+                style={{ width: 100 }}
+                className="block-input"
+                disabled={!!(selectedProductId && unitsLoading)}
+              />
+            )}
+          />
+        )}
+
+        <Controller
+          name={`items.${index}.discount_per_item`}
+          control={form.control}
+          render={({ field: f }) => (
+            <NumberInput
+              label="Disc/unit"
+              min={0}
+              decimalScale={2}
+              leftSection={CURRENCY_SYMBOL}
+              value={f.value}
+              onChange={v => f.onChange(Number(v))}
+              style={{ width: 110 }}
+              className="block-input"
+            />
+          )}
+        />
+
+        <Stack gap={0} style={{ minWidth: 100 }}>
+          <Text size="xs" fw={700} color="dimmed">LINE TOTAL</Text>
+          <Text size="sm" fw={800}>{formatCurrency(lineItem.lineTotal)}</Text>
+          {lineItem.product && (
+            <Text size="xs" color="dimmed">@ {formatCurrency(lineItem.unitPrice)}</Text>
+          )}
+        </Stack>
+
+        {canRemove && (
+          <ActionIcon color="red" variant="subtle" mt={22} onClick={onRemove}>
+            <Trash2 size={16} />
+          </ActionIcon>
+        )}
+      </Group>
+    </Paper>
+  );
+}
 
 export default function Sales() {
   const { user } = useAuth();
@@ -50,7 +221,7 @@ export default function Sales() {
       payment_status: "paid",
       amount_paid: 0,
       notes: "",
-      items: [{ product_id: "", quantity: 1, discount_per_item: 0 }],
+      items: [{ product_id: "", quantity: 1, discount_per_item: 0, unit_id: null }],
     },
   });
 
@@ -123,7 +294,7 @@ export default function Sales() {
       payment_status: "paid",
       amount_paid: 0,
       notes: "",
-      items: [{ product_id: "", quantity: 1, discount_per_item: 0 }],
+      items: [{ product_id: "", quantity: 1, discount_per_item: 0, unit_id: null }],
     });
     setIsModalOpen(true);
   };
@@ -303,81 +474,28 @@ export default function Sales() {
             {/* Cart items */}
             {fields.map((field, index) => {
               const lineItem = lineItems[index];
+              const selectedProductId = watchedItems[index]?.product_id || null;
+              // Read unit_id from watchedItems (which is driven by form.watch in the
+              // parent) so CartItemRow re-renders whenever the selection changes.
+              const selectedUnitId = watchedItems[index]?.unit_id ?? null;
               return (
-                <Paper key={field.id} p="sm" style={{ border: '1px solid black' }}>
-                  <Group align="flex-start" gap="sm">
-                    <Controller
-                      name={`items.${index}.product_id`}
-                      control={form.control}
-                      render={({ field: f }) => (
-                        <Select
-                          label="Product"
-                          placeholder="Select product"
-                          required
-                          data={products.map(p => ({
-                            value: p.id,
-                            label: `${p.name} (Stock: ${p.current_stock})`,
-                            disabled: p.current_stock === 0,
-                          }))}
-                          value={f.value}
-                          onChange={f.onChange}
-                          searchable
-                          style={{ flex: 2 }}
-                          className="block-input"
-                        />
-                      )}
-                    />
-                    <Controller
-                      name={`items.${index}.quantity`}
-                      control={form.control}
-                      render={({ field: f }) => (
-                        <NumberInput
-                          label="Qty"
-                          min={1}
-                          max={lineItem.product?.current_stock}
-                          value={f.value}
-                          onChange={v => f.onChange(Number(v))}
-                          style={{ width: 80 }}
-                          className="block-input"
-                        />
-                      )}
-                    />
-                    <Controller
-                      name={`items.${index}.discount_per_item`}
-                      control={form.control}
-                      render={({ field: f }) => (
-                        <NumberInput
-                          label="Disc/unit"
-                          min={0}
-                          decimalScale={2}
-                          leftSection={CURRENCY_SYMBOL}
-                          value={f.value}
-                          onChange={v => f.onChange(Number(v))}
-                          style={{ width: 110 }}
-                          className="block-input"
-                        />
-                      )}
-                    />
-                    <Stack gap={0} style={{ minWidth: 100 }}>
-                      <Text size="xs" fw={700} color="dimmed">LINE TOTAL</Text>
-                      <Text size="sm" fw={800}>{formatCurrency(lineItem.lineTotal)}</Text>
-                      {lineItem.product && (
-                        <Text size="xs" color="dimmed">@ {formatCurrency(lineItem.unitPrice)}</Text>
-                      )}
-                    </Stack>
-                    {fields.length > 1 && (
-                      <ActionIcon color="red" variant="subtle" mt={22} onClick={() => remove(index)}>
-                        <Trash2 size={16} />
-                      </ActionIcon>
-                    )}
-                  </Group>
-                </Paper>
+                <CartItemRow
+                  key={field.id}
+                  index={index}
+                  form={form}
+                  products={products}
+                  lineItem={lineItem}
+                  selectedProductId={selectedProductId}
+                  selectedUnitId={selectedUnitId}
+                  canRemove={fields.length > 1}
+                  onRemove={() => remove(index)}
+                />
               );
             })}
 
             <Button
               variant="outline" color="dark" size="sm"
-              onClick={() => append({ product_id: "", quantity: 1, discount_per_item: 0 })}
+              onClick={() => append({ product_id: "", quantity: 1, discount_per_item: 0, unit_id: null })}
               leftSection={<Plus size={14} />}
               style={{ alignSelf: 'flex-start' }}
             >
@@ -528,16 +646,22 @@ export default function Sales() {
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {viewingSale.items.map(item => (
-                  <Table.Tr key={item.id}>
-                    <Table.Td style={{ borderBottom: '1px solid black' }}>
-                      <Text size="sm" fw={700}>{item.product_id}</Text>
-                    </Table.Td>
-                    <Table.Td style={{ borderBottom: '1px solid black' }}>{item.quantity}</Table.Td>
-                    <Table.Td style={{ borderBottom: '1px solid black' }}>{formatCurrency(item.unit_price)}</Table.Td>
-                    <Table.Td style={{ borderBottom: '1px solid black' }} fw={800}>{formatCurrency(item.line_total)}</Table.Td>
-                  </Table.Tr>
-                ))}
+                {viewingSale.items.map(item => {
+                  const product = productsData?.find(p => p.id === item.product_id);
+                  return (
+                    <Table.Tr key={item.id}>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}>
+                        <Text size="sm" fw={700}>{product?.name ?? item.product_id}</Text>
+                        {item.unit_id && (
+                          <Text size="xs" c="dimmed" ff="monospace">Unit ID: {item.unit_id}</Text>
+                        )}
+                      </Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}>{item.quantity}</Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }}>{formatCurrency(item.unit_price)}</Table.Td>
+                      <Table.Td style={{ borderBottom: '1px solid black' }} fw={800}>{formatCurrency(item.line_total)}</Table.Td>
+                    </Table.Tr>
+                  );
+                })}
               </Table.Tbody>
             </Table>
 

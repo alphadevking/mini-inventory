@@ -38,6 +38,8 @@ from sqlmodel import Session, select
 
 from ..models import (
     Product,
+    ProductUnit,
+    UnitStatus,
     Sale,
     SaleBase,
     SaleCreate,
@@ -83,8 +85,8 @@ class SaleService:
         if not payload.items:
             raise ValueError("A sale must have at least one item")
 
-        # --- 1. Validate all products exist and load prices ---
-        resolved: List[tuple[SaleItemCreate, Product]] = []
+        # --- 1. Validate all products exist, load prices, and resolve units ---
+        resolved: List[tuple[SaleItemCreate, Product, Optional["ProductUnit"]]] = []
         for item in payload.items:
             product = session.get(Product, item.product_id)
             if not product:
@@ -93,10 +95,31 @@ class SaleService:
                 raise ValueError(f"Product '{product.name}' is inactive and cannot be sold")
             if item.quantity <= 0:
                 raise ValueError(f"Quantity must be positive for product '{product.name}'")
-            resolved.append((item, product))
+
+            unit: Optional[ProductUnit] = None
+            if item.unit_id:
+                # Serialized sale — caller specified the exact unit
+                unit = session.get(ProductUnit, item.unit_id)
+                if not unit:
+                    raise ValueError(f"Unit {item.unit_id} not found")
+                if unit.product_id != product.id:
+                    raise ValueError(
+                        f"Unit {item.unit_id} does not belong to product '{product.name}'"
+                    )
+                if unit.status != UnitStatus.in_stock:
+                    raise ValueError(
+                        f"Unit (SN: {unit.serial_number}) is not available — "
+                        f"current status: {unit.status.value}"
+                    )
+                # Serialized items are always qty 1
+                if item.quantity != 1:
+                    raise ValueError(
+                        f"Serialized unit (SN: {unit.serial_number}) must have quantity=1"
+                    )
+            resolved.append((item, product, unit))
 
         # --- 2. Pre-flight stock check (fail fast before any mutations) ---
-        for item, product in resolved:
+        for item, product, unit in resolved:
             if product.current_stock < item.quantity:
                 raise InsufficientStockError(
                     product_id=product.id,
@@ -107,15 +130,17 @@ class SaleService:
         # --- 3. Build line items with locked prices ---
         sale_items_data = []
         subtotal = 0.0
-        for item, product in resolved:
+        for item, product, unit in resolved:
             unit_price = product.suggested_sell_price
-            unit_cost = product.last_purchase_cost
+            # For serialized units, lock purchase_cost from the specific unit
+            unit_cost = unit.purchase_cost if unit else product.last_purchase_cost
             discount = item.discount_per_item
             line_total = (unit_price - discount) * item.quantity
             subtotal += line_total
             sale_items_data.append({
                 "item": item,
                 "product": product,
+                "unit": unit,
                 "unit_price": unit_price,
                 "unit_cost": unit_cost,
                 "line_total": line_total,
@@ -151,22 +176,33 @@ class SaleService:
         for entry in sale_items_data:
             item: SaleItemCreate = entry["item"]
             product: Product = entry["product"]
+            unit: Optional[ProductUnit] = entry["unit"]
 
             # Deduct stock — raises InsufficientStockError if race condition hit
             movement = StockService.move_stock(
                 session=session,
                 product_id=product.id,
+                unit_id=unit.id if unit else None,
                 quantity_delta=-item.quantity,
                 movement_type=StockMovementType.sale,
                 reference_type="sale",
                 reference_id=sale.id,
-                notes=f"Sale #{sale_number}",
+                notes=f"Sale #{sale_number}"
+                + (f" — SN: {unit.serial_number}" if unit else ""),
                 created_by=created_by,
             )
+
+            # Mark the physical unit as sold
+            if unit:
+                from datetime import datetime
+                unit.status = UnitStatus.sold
+                unit.sold_at = datetime.utcnow()
+                session.add(unit)
 
             sale_item = SaleItem(
                 sale_id=sale.id,
                 product_id=product.id,
+                unit_id=unit.id if unit else None,
                 quantity=item.quantity,
                 unit_price=entry["unit_price"],
                 unit_cost=entry["unit_cost"],
@@ -180,6 +216,7 @@ class SaleService:
             sale_item_reads.append(SaleItemRead(
                 id=sale_item.id,
                 product_id=sale_item.product_id,
+                unit_id=sale_item.unit_id,
                 quantity=sale_item.quantity,
                 unit_price=sale_item.unit_price,
                 unit_cost=sale_item.unit_cost,
@@ -273,6 +310,7 @@ class SaleService:
                 SaleItemRead(
                     id=i.id,
                     product_id=i.product_id,
+                    unit_id=i.unit_id,
                     quantity=i.quantity,
                     unit_price=i.unit_price,
                     unit_cost=i.unit_cost,

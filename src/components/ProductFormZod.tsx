@@ -3,6 +3,7 @@ import { CURRENCY_SYMBOL } from '../config/app';
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
+  Alert,
   Button,
   TextInput,
   NumberInput,
@@ -14,8 +15,10 @@ import {
   Box,
   Grid,
   ThemeIcon,
-  Paper
+  Text,
+  Paper,
 } from "@mantine/core";
+import { Info, Cpu, Package, Tag, DollarSign, Layers } from "lucide-react";
 import { CategorySelector } from "./CategorySelector";
 import { ProductCreateSchema, ProductUpdateSchema, type ProductCreate, type ProductUpdate } from "@/lib/schemas";
 
@@ -36,7 +39,7 @@ export default function ProductFormZod({
   submitLabel = "Create Product",
   cancelLabel = "Cancel",
   defaultValues,
-  isEdit = false
+  isEdit = false,
 }: ProductFormProps) {
   const form = useForm<ProductCreate | ProductUpdate>({
     resolver: zodResolver(isEdit ? ProductUpdateSchema : ProductCreateSchema),
@@ -50,41 +53,58 @@ export default function ProductFormZod({
       barcode: null,
       dimensions: "",
       weight: undefined,
-      weight_unit: "kg",
+      weight_unit: "g",
       last_purchase_cost: 0,
       suggested_sell_price: 0,
-      low_stock_threshold: 5,
+      low_stock_threshold: 3,
       current_stock: 0,
       status: "active",
       description: "",
       supplier: "",
       image_url: null,
       attributes: {},
-      is_active: true
-    }
+      is_active: true,
+    },
   });
 
-  const handleSubmit = (data: ProductCreate | ProductUpdate) => {
-    onSubmit(data);
-  };
-
   return (
-    <form onSubmit={form.handleSubmit(handleSubmit)}>
+    <form onSubmit={form.handleSubmit(onSubmit)}>
       <Stack gap="xl">
-        {/* Section 1: Basic Info */}
+
+        {/* Model vs Unit callout — only on create */}
+        {!isEdit && (
+          <Alert
+            icon={<Info size={16} />}
+            color="blue"
+            variant="light"
+            title="You are creating a Product Model"
+          >
+            <Text size="sm">
+              This form describes <strong>what the product is</strong> — its name, barcode, price, and category.
+              It does <strong>not</strong> represent a specific physical device.
+            </Text>
+            <Text size="sm" mt={4}>
+              After saving, open the product's <strong>View Units</strong> menu to register individual devices
+              with their serial numbers and IMEIs.
+            </Text>
+          </Alert>
+        )}
+
+        {/* ── Section 1: Identity ── */}
         <Box>
-          <Group mb="md">
-            <ThemeIcon size={32} radius="md" variant="gradient" gradient={{ from: 'blue', to: 'indigo' }}>
-              1
-            </ThemeIcon>
-            <Title order={4}>Basic Information</Title>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="blue"><Tag size={14} /></ThemeIcon>
+            <Title order={5}>Model Identity</Title>
           </Group>
+          <Text size="xs" c="dimmed" mb="md">
+            Fields that identify the product model — shared by every physical unit of this model.
+          </Text>
 
           <Grid>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
                 label="Product Name"
-                placeholder="Enter product name"
+                placeholder='e.g. "iPhone 15 Pro 256GB Natural Titanium"'
                 required
                 {...form.register("name")}
                 error={form.formState.errors.name?.message}
@@ -93,50 +113,62 @@ export default function ProductFormZod({
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
                 label="SKU"
-                placeholder="Stock keeping unit"
+                description="Internal reference code — must be unique"
+                placeholder="e.g. IPH15PRO-256-NT"
                 required
                 {...form.register("sku")}
-                error={form.formState.errors.sku?.message}
+                error={(form.formState.errors as Record<string, { message?: string }>).sku?.message}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
                 label="Brand"
-                placeholder="Brand name"
+                placeholder="e.g. Apple"
                 {...form.register("brand")}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
-                label="Model"
-                placeholder="Model number"
+                label="Model Name"
+                placeholder='e.g. "iPhone 15 Pro"'
                 {...form.register("model")}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
-                label="Barcode"
-                placeholder="Barcode"
+                label="Barcode / EAN / UPC"
+                description="Manufacturer barcode that identifies this model — not a device serial number"
+                placeholder="e.g. 194253714743"
                 {...form.register("barcode")}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
-              <TextInput
-                label="Dimensions"
-                placeholder="e.g., 10x5x2 cm"
-                {...form.register("dimensions")}
+              <Controller
+                name="status"
+                control={form.control}
+                render={({ field }) => (
+                  <Select
+                    label="Status"
+                    description="Inactive products cannot be sold"
+                    data={[
+                      { value: "active", label: "Active" },
+                      { value: "inactive", label: "Inactive" },
+                      { value: "discontinued", label: "Discontinued" },
+                    ]}
+                    value={field.value as string ?? "active"}
+                    onChange={field.onChange}
+                  />
+                )}
               />
             </Grid.Col>
           </Grid>
         </Box>
 
-        {/* Section 2: Category */}
+        {/* ── Section 2: Category ── */}
         <Box>
-          <Group mb="md">
-            <ThemeIcon size={32} radius="md" variant="gradient" gradient={{ from: 'green', to: 'teal' }}>
-              2
-            </ThemeIcon>
-            <Title order={4}>Category & Classification</Title>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="teal"><Layers size={14} /></ThemeIcon>
+            <Title order={5}>Category</Title>
           </Group>
 
           <CategorySelector
@@ -146,19 +178,22 @@ export default function ProductFormZod({
               form.setValue("category_id", categoryId);
               form.setValue("subcategory_id", "");
             }}
-            onSubcategoryChange={(subcategoryId) => form.setValue("subcategory_id", subcategoryId || "")}
+            onSubcategoryChange={(subcategoryId) =>
+              form.setValue("subcategory_id", subcategoryId || "")
+            }
             required
           />
         </Box>
 
-        {/* Section 3: Pricing */}
+        {/* ── Section 3: Pricing ── */}
         <Box>
-          <Group mb="md">
-            <ThemeIcon size={32} radius="md" variant="gradient" gradient={{ from: 'purple', to: 'pink' }}>
-              3
-            </ThemeIcon>
-            <Title order={4}>Pricing & Inventory</Title>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="violet"><DollarSign size={14} /></ThemeIcon>
+            <Title order={5}>Pricing</Title>
           </Group>
+          <Text size="xs" c="dimmed" mb="md">
+            Reference prices for this model. For serialized units, purchase cost is locked per unit at intake time.
+          </Text>
 
           <Grid>
             <Grid.Col span={{ base: 12, md: 6 }}>
@@ -167,14 +202,16 @@ export default function ProductFormZod({
                 control={form.control}
                 render={({ field }) => (
                   <NumberInput
-                    label="Purchase Cost"
+                    label="Default Purchase Cost"
+                    description="Reference cost — overridable per unit at intake"
                     required
                     min={0}
                     decimalScale={2}
+                    thousandSeparator=","
                     leftSection={CURRENCY_SYMBOL}
-                    value={field.value}
+                    value={field.value as number}
                     onChange={(val) => field.onChange(Number(val))}
-                    error={form.formState.errors.last_purchase_cost?.message}
+                    error={(form.formState.errors as Record<string, { message?: string }>).last_purchase_cost?.message}
                   />
                 )}
               />
@@ -185,44 +222,15 @@ export default function ProductFormZod({
                 control={form.control}
                 render={({ field }) => (
                   <NumberInput
-                    label="Sell Price"
+                    label="Selling Price"
                     required
                     min={0}
                     decimalScale={2}
+                    thousandSeparator=","
                     leftSection={CURRENCY_SYMBOL}
-                    value={field.value}
+                    value={field.value as number}
                     onChange={(val) => field.onChange(Number(val))}
-                    error={form.formState.errors.suggested_sell_price?.message}
-                  />
-                )}
-              />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <Controller
-                name="current_stock"
-                control={form.control}
-                render={({ field }) => (
-                  <NumberInput
-                    label="Initial Stock"
-                    required
-                    min={0}
-                    value={field.value}
-                    onChange={(val) => field.onChange(Number(val))}
-                  />
-                )}
-              />
-            </Grid.Col>
-            <Grid.Col span={{ base: 12, md: 6 }}>
-              <Controller
-                name="low_stock_threshold"
-                control={form.control}
-                render={({ field }) => (
-                  <NumberInput
-                    label="Low Stock Threshold"
-                    required
-                    min={0}
-                    value={field.value}
-                    onChange={(val) => field.onChange(Number(val))}
+                    error={(form.formState.errors as Record<string, { message?: string }>).suggested_sell_price?.message}
                   />
                 )}
               />
@@ -230,34 +238,140 @@ export default function ProductFormZod({
           </Grid>
         </Box>
 
-        {/* Section 4: Additional */}
+        {/* ── Section 4: Stock Settings ── */}
         <Box>
-          <Group mb="md">
-            <ThemeIcon size={32} radius="md" variant="gradient" gradient={{ from: 'orange', to: 'red' }}>
-              4
-            </ThemeIcon>
-            <Title order={4}>Additional Details</Title>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="orange"><Package size={14} /></ThemeIcon>
+            <Title order={5}>Stock Settings</Title>
+          </Group>
+
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 6 }}>
+              <Controller
+                name="low_stock_threshold"
+                control={form.control}
+                render={({ field }) => (
+                  <NumberInput
+                    label="Low Stock Alert Threshold"
+                    description="Get alerted when stock falls at or below this number"
+                    required
+                    min={0}
+                    value={field.value as number}
+                    onChange={(val) => field.onChange(Number(val))}
+                  />
+                )}
+              />
+            </Grid.Col>
+            {isEdit && (
+              <Grid.Col span={{ base: 12, md: 6 }}>
+                <Controller
+                  name="current_stock"
+                  control={form.control}
+                  render={({ field }) => (
+                    <NumberInput
+                      label="Current Stock (bulk adjustment)"
+                      description="Only use for non-serialized bulk items. Serialized stock is managed via units."
+                      min={0}
+                      value={field.value as number}
+                      onChange={(val) => field.onChange(Number(val))}
+                    />
+                  )}
+                />
+              </Grid.Col>
+            )}
+          </Grid>
+
+          {!isEdit && (
+            <Paper p="sm" mt="sm" withBorder style={{ borderStyle: "dashed" }}>
+              <Group gap="xs">
+                <Cpu size={14} />
+                <Text size="sm" fw={500}>Serialized stock is added after creating the product</Text>
+              </Group>
+              <Text size="xs" c="dimmed" mt={4}>
+                Once this product is saved, use <strong>View Units → Receive Units</strong> to register
+                each physical device with its serial number and IMEI. The stock count will update automatically.
+              </Text>
+            </Paper>
+          )}
+        </Box>
+
+        {/* ── Section 5: Physical Attributes ── */}
+        <Box>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="gray"><Package size={14} /></ThemeIcon>
+            <Title order={5}>Physical Attributes</Title>
+          </Group>
+
+          <Grid>
+            <Grid.Col span={{ base: 12, md: 8 }}>
+              <TextInput
+                label="Dimensions"
+                description='Overall box or device dimensions'
+                placeholder="e.g. 146.6 x 70.6 x 8.25 mm"
+                {...form.register("dimensions")}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 2 }}>
+              <Controller
+                name="weight"
+                control={form.control}
+                render={({ field }) => (
+                  <NumberInput
+                    label="Weight"
+                    placeholder="0"
+                    min={0}
+                    decimalScale={2}
+                    value={field.value as number | undefined}
+                    onChange={(val) => field.onChange(val === "" ? undefined : Number(val))}
+                  />
+                )}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 12, md: 2 }}>
+              <Controller
+                name="weight_unit"
+                control={form.control}
+                render={({ field }) => (
+                  <Select
+                    label="Unit"
+                    data={["g", "kg", "oz", "lb"]}
+                    value={field.value as string ?? "g"}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </Grid.Col>
+          </Grid>
+        </Box>
+
+        {/* ── Section 6: Additional Details ── */}
+        <Box>
+          <Group mb="sm">
+            <ThemeIcon size={28} radius="sm" color="pink"><Info size={14} /></ThemeIcon>
+            <Title order={5}>Additional Details</Title>
           </Group>
 
           <Grid>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
                 label="Supplier"
-                placeholder="Supplier name"
+                placeholder="Primary supplier name"
                 {...form.register("supplier")}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 12, md: 6 }}>
               <TextInput
                 label="Image URL"
-                placeholder="https://example.com/image.jpg"
+                placeholder="https://..."
                 {...form.register("image_url")}
+                error={(form.formState.errors as Record<string, { message?: string }>).image_url?.message}
               />
             </Grid.Col>
             <Grid.Col span={12}>
               <Textarea
                 label="Description"
-                placeholder="Product description..."
+                description="Visible to staff — storage, colour options, key specs"
+                placeholder="e.g. Apple iPhone 15 Pro in Natural Titanium. Available in 128GB, 256GB, 512GB, 1TB."
                 minRows={3}
                 {...form.register("description")}
               />
@@ -265,11 +379,11 @@ export default function ProductFormZod({
           </Grid>
         </Box>
 
-        <Group justify="flex-end" mt="xl">
+        <Group justify="flex-end" mt="md">
           <Button variant="outline" onClick={onCancel} disabled={isSubmitting}>
             {cancelLabel}
           </Button>
-          <Button type="submit" loading={isSubmitting} disabled={!form.formState.isValid}>
+          <Button type="submit" loading={isSubmitting || form.formState.isSubmitting}>
             {submitLabel}
           </Button>
         </Group>

@@ -65,6 +65,7 @@ class StockService:
         quantity_delta: int,           # positive = in, negative = out
         movement_type: StockMovementType,
         reference_type: str,
+        unit_id: Optional[UUID] = None,  # serialized inventory: the specific unit
         reference_id: Optional[UUID] = None,
         notes: Optional[str] = None,
         created_by: Optional[UUID] = None,
@@ -119,6 +120,7 @@ class StockService:
             # Append immutable ledger entry
             movement = StockMovement(
                 product_id=product_id,
+                unit_id=unit_id,
                 quantity_delta=quantity_delta,
                 balance_after=new_balance,
                 movement_type=movement_type,

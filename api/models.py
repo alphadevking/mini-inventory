@@ -240,6 +240,7 @@ class Product(ProductBase, table=True):
     transactions: List["Transaction"] = Relationship(back_populates="product")
     returns: List["Return"] = Relationship(back_populates="product")
     stock_movements: List["StockMovement"] = Relationship(back_populates="product")
+    units: List["ProductUnit"] = Relationship(back_populates="product")
 
 
 class ProductCreate(ProductBase):
@@ -835,6 +836,8 @@ class Return(ReturnBase, table=True):
     # Link to the Sale this return originated from (null = walk-in return)
     original_sale_id: Optional[UUID] = Field(default=None, foreign_key="sale.id")
     original_sale_item_id: Optional[UUID] = Field(default=None, foreign_key="saleitem.id")
+    # Serialized inventory: the specific unit being returned
+    unit_id: Optional[UUID] = Field(default=None, foreign_key="productunit.id", index=True)
     # Stock movement record created when this return was processed
     stock_movement_id: Optional[UUID] = Field(default=None, foreign_key="stockmovement.id")
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -850,7 +853,10 @@ class Return(ReturnBase, table=True):
 
 
 class ReturnCreate(ReturnBase):
-    pass
+    # FK links only available when created via a known sale/unit context
+    original_sale_id: Optional[UUID] = None
+    original_sale_item_id: Optional[UUID] = None
+    unit_id: Optional[UUID] = None
 
 
 class ReturnUpdate(SQLModel):
@@ -925,6 +931,14 @@ class StockMovementType(str, enum.Enum):
     initial = "initial"         # Opening stock entry
 
 
+class UnitStatus(str, enum.Enum):
+    in_stock = "in_stock"       # Available for sale
+    sold = "sold"               # Sold to a customer
+    returned = "returned"       # Returned by a customer, back in stock
+    in_repair = "in_repair"     # Currently being repaired
+    reserved = "reserved"       # Reserved/held (e.g. display unit)
+
+
 class StockMovement(SQLModel, table=True):
     """
     Append-only ledger of every stock change in the system.
@@ -935,6 +949,8 @@ class StockMovement(SQLModel, table=True):
     """
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     product_id: UUID = Field(foreign_key="product.id", index=True)
+    # For serialized products, the specific unit involved in this movement
+    unit_id: Optional[UUID] = Field(default=None, foreign_key="productunit.id", index=True)
     quantity_delta: int  # positive = stock in, negative = stock out
     balance_after: int   # snapshot of current_stock after this movement
     movement_type: StockMovementType = Field(
@@ -949,6 +965,92 @@ class StockMovement(SQLModel, table=True):
 
     # Relationships
     product: Optional[Product] = Relationship(back_populates="stock_movements")
+
+
+# --- Serialized Inventory (Gold Standard) ---
+
+class ProductUnit(SQLModel, table=True):
+    """
+    One row per physical device in stock.
+
+    The Product row is the Model (what it is — barcode, SKU, price list).
+    The ProductUnit row is the Unit (which specific device — serial, IMEI).
+
+    current_stock on Product = COUNT(ProductUnit WHERE status='in_stock').
+    We keep current_stock as a denormalised cache for fast reads; StockService
+    keeps it in sync whenever a unit changes status.
+    """
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    product_id: UUID = Field(foreign_key="product.id", index=True)
+
+    # Physical identity
+    serial_number: str = Field(unique=True, index=True)
+    imei: Optional[str] = Field(default=None, unique=True, index=True)  # phones/tablets only
+    color: Optional[str] = None
+    storage: Optional[str] = None   # e.g. "256GB"
+    condition: Optional[str] = Field(default="New")  # New | Used | Refurbished
+
+    # Lifecycle
+    status: UnitStatus = Field(
+        default=UnitStatus.in_stock,
+        sa_column=Column(Enum(UnitStatus), nullable=False, index=True),
+    )
+    purchase_cost: float   # Locked at intake — never updated
+    purchased_at: date = Field(default_factory=date.today)
+    sold_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+    # Audit trail
+    created_by: Optional[UUID] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(
+        default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}
+    )
+
+    # Relationships
+    product: Optional[Product] = Relationship(back_populates="units")
+
+
+class ProductUnitCreate(SQLModel):
+    serial_number: str
+    imei: Optional[str] = None
+    color: Optional[str] = None
+    storage: Optional[str] = None
+    condition: Optional[str] = "New"
+    purchase_cost: float
+    purchased_at: Optional[date] = None
+    notes: Optional[str] = None
+
+
+class ProductUnitBatchCreate(SQLModel):
+    units: List[ProductUnitCreate]
+
+
+class ProductUnitUpdate(SQLModel):
+    serial_number: Optional[str] = None
+    imei: Optional[str] = None
+    color: Optional[str] = None
+    storage: Optional[str] = None
+    condition: Optional[str] = None
+    status: Optional[UnitStatus] = None
+    notes: Optional[str] = None
+
+
+class ProductUnitRead(SQLModel):
+    id: UUID
+    product_id: UUID
+    serial_number: str
+    imei: Optional[str]
+    color: Optional[str]
+    storage: Optional[str]
+    condition: Optional[str]
+    status: UnitStatus
+    purchase_cost: float
+    purchased_at: date
+    sold_at: Optional[datetime]
+    notes: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
 
 # --- Audit Log ---
@@ -1055,10 +1157,16 @@ class Sale(SaleBase, table=True):
 class SaleItem(SQLModel, table=True):
     """
     One line item within a Sale. Prices are locked at sale time.
+
+    For serialized products, unit_id points to the specific PhysicalUnit sold.
+    quantity is always 1 for serialized items; the field is kept for
+    non-serialized accessories/consumables that don't need unit tracking.
     """
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     sale_id: UUID = Field(foreign_key="sale.id", index=True)
     product_id: UUID = Field(foreign_key="product.id", index=True)
+    # Serialized inventory link — null for non-serialized (bulk) products
+    unit_id: Optional[UUID] = Field(default=None, foreign_key="productunit.id", index=True)
     quantity: int
     unit_price: float   # LOCKED — product's suggested_sell_price at sale time
     unit_cost: float    # LOCKED — product's last_purchase_cost at sale time (for COGS)
@@ -1108,6 +1216,8 @@ class SaleItemCreate(SQLModel):
     product_id: UUID
     quantity: int
     discount_per_item: float = 0.0
+    # For serialized products: caller must supply the specific unit to sell
+    unit_id: Optional[UUID] = None
 
 
 class SaleCreate(SaleBase):
@@ -1117,6 +1227,7 @@ class SaleCreate(SaleBase):
 class SaleItemRead(SQLModel):
     id: UUID
     product_id: UUID
+    unit_id: Optional[UUID] = None
     quantity: int
     unit_price: float
     unit_cost: float
@@ -1148,6 +1259,7 @@ class RepairReadFull(RepairBase):
 class StockMovementRead(SQLModel):
     id: UUID
     product_id: UUID
+    unit_id: Optional[UUID] = None
     quantity_delta: int
     balance_after: int
     movement_type: StockMovementType
