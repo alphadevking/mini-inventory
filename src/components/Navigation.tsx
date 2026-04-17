@@ -89,7 +89,7 @@ const PAGE_LABELS: Record<string, string> = {
   '/returns':      'Returns',
   '/repairs':      'Repairs',
   '/expenses':     'Expenses',
-  '/transactions': 'Transactions',
+  '/purchases': 'Purchases',
   '/analytics':    'Analytics',
   '/erp':          'ERP',
   '/categories':   'Categories',
@@ -137,7 +137,7 @@ const Navigation: React.FC<NavigationProps> = ({ children }) => {
       heading: 'Finance',
       items: [
         { label: 'Expenses',     icon: DollarSign, path: '/expenses',     items: [], roles: ['admin','manager'] },
-        { label: 'Transactions', icon: FileText,   path: '/transactions', items: [], roles: ['admin','manager'] },
+        { label: 'Purchases',    icon: FileText,   path: '/purchases',    items: [], roles: ['admin','manager'] },
       ],
     },
     {

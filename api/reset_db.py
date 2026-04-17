@@ -9,6 +9,7 @@ Usage:
 """
 import sys
 
+from sqlalchemy import text
 from sqlmodel import SQLModel
 
 from .database import engine
@@ -17,6 +18,10 @@ from .models import *  # noqa: F401,F403 — registers all models with SQLModel.
 
 def reset_db(seed: bool = True) -> None:
     print("Dropping all tables...")
+    # Drop any legacy tables that no longer exist in models (CASCADE removes their FKs first)
+    with engine.connect() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS transaction CASCADE"))
+        conn.commit()
     SQLModel.metadata.drop_all(engine)
     print("Creating all tables from current models...")
     SQLModel.metadata.create_all(engine)

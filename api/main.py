@@ -8,7 +8,7 @@ from .middleware import RequestTimingMiddleware
 from .routers import (
     products,
     product_units,
-    transactions,
+    purchases,
     repairs,
     expenses,
     returns,
@@ -43,7 +43,7 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(product_units.router, prefix="/api")  # serialized inventory
 app.include_router(sales.router, prefix="/api")          # new — immutable sales
-app.include_router(transactions.router, prefix="/api")   # purchases only going forward
+app.include_router(purchases.router, prefix="/api")      # supplier intake
 app.include_router(repairs.router, prefix="/api")        # rewritten — service-backed
 app.include_router(expenses.router, prefix="/api")
 app.include_router(returns.router, prefix="/api")        # rewritten — stock-aware

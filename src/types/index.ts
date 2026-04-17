@@ -2,7 +2,6 @@
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type TransactionType = "purchase" | "sale";
 export type RepairStatus = "pending" | "in_progress" | "completed" | "cancelled";
 export type PaymentStatus = "paid" | "pending" | "partial";
 export type PaymentMethod = "cash" | "card" | "transfer" | "other";
@@ -137,22 +136,55 @@ export interface AuditLogEntry {
   after_state?: Record<string, unknown> | null;
 }
 
-// ─── Transaction (purchases only going forward; legacy sales data) ────────────
+// ─── Purchase (supplier intake — replaces Transaction) ───────────────────────
 
-export interface Transaction {
-  id: string;
-  product_id: string;
-  transaction_date: string;
-  transaction_type: TransactionType;
-  quantity: number;
-  unit_cost?: number;
-  unit_price?: number;
-  party_name?: string;
-  transport_other_cost?: number;
-  reference_number?: string;
+export interface ProductUnitSpec {
+  serial_number: string;
+  imei?: string;
+  color?: string;
+  storage?: string;
+  condition?: string;
   notes?: string;
+}
+
+export interface PurchaseItemCreate {
+  product_id: string;
+  quantity: number;
+  unit_cost: number;
+  units?: ProductUnitSpec[];   // provide for serialized products
+}
+
+export interface PurchaseCreate {
+  supplier: string;
+  reference_number?: string;
+  delivery_date?: string;       // YYYY-MM-DD
+  transport_cost?: number;
+  notes?: string;
+  items: PurchaseItemCreate[];
+}
+
+export interface PurchaseItem {
+  id: string;
+  purchase_id: string;
+  product_id: string;
+  quantity: number;
+  unit_cost: number;
+  subtotal: number;
   created_at: string;
   product?: Product;
+}
+
+export interface Purchase {
+  id: string;
+  supplier: string;
+  reference_number?: string;
+  delivery_date: string;
+  transport_cost: number;
+  total_cost: number;
+  notes?: string;
+  created_by?: string;
+  created_at: string;
+  items: PurchaseItem[];
 }
 
 // ─── Sale (immutable, first-class) ───────────────────────────────────────────
@@ -324,7 +356,7 @@ export interface DashboardStats {
   total_repairs: number;
   pending_repairs: number;
   completed_repairs: number;
-  total_transactions: number;
+  total_purchases: number;
   total_expenses: number;
   monthly_revenue: number;
   monthly_profit: number;

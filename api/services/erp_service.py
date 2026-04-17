@@ -3,8 +3,7 @@ from typing import Dict, Any
 from datetime import date, datetime, timedelta
 
 from ..models import (
-    Product, Transaction, TransactionType, Repair, RepairStatus,
-    Expense
+    Product, Repair, RepairStatus, Expense
 )
 from .analytics_service import AnalyticsService
 

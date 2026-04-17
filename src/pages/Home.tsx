@@ -260,7 +260,7 @@ function ManagerHome({ isAdmin }: { isAdmin: boolean }) {
         <MetricCard title="Total Products"     value={stats.total_products}                   icon={Package}    color="blue"   description={`${stats.low_stock_products} low stock`}               />
         <MetricCard title="Active Repairs"     value={stats.total_repairs}                    icon={Wrench}     color="teal"   description={`${stats.pending_repairs} pending`}                    />
         <MetricCard title="Monthly Revenue"    value={formatCurrency(stats.monthly_revenue)}  icon={TrendingUp} color="indigo" description={`${formatCurrency(stats.monthly_profit)} profit`}      />
-        <MetricCard title="Total Transactions" value={stats.total_transactions}               icon={DollarSign} color="indigo" description={`${formatCurrency(stats.total_expenses)} expenses`}    />
+        <MetricCard title="Total Purchases"    value={stats.total_purchases}                  icon={DollarSign} color="indigo" description={`${formatCurrency(stats.total_expenses)} expenses`}    />
       </SimpleGrid>
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg" mb="xl">

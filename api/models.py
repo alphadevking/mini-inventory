@@ -20,11 +20,6 @@ import enum
 
 
 # --- Enums ---
-class TransactionType(str, enum.Enum):
-    purchase = "purchase"
-    sale = "sale"
-
-
 class RepairStatus(str, enum.Enum):
     pending = "pending"
     in_progress = "in_progress"
@@ -237,7 +232,7 @@ class Product(ProductBase, table=True):
     # Relationships
     category: Optional[ProductCategory] = Relationship(back_populates="products")
     subcategory: Optional[ProductSubcategory] = Relationship(back_populates="products")
-    transactions: List["Transaction"] = Relationship(back_populates="product")
+    purchase_items: List["PurchaseItem"] = Relationship(back_populates="product")
     returns: List["Return"] = Relationship(back_populates="product")
     stock_movements: List["StockMovement"] = Relationship(back_populates="product")
     units: List["ProductUnit"] = Relationship(back_populates="product")
@@ -663,44 +658,94 @@ def validate_product_attributes(
     return errors
 
 
-# --- Transaction Models ---
-class TransactionBase(SQLModel):
-    product_id: UUID = Field(foreign_key="product.id")
-    transaction_date: date = Field(default_factory=date.today)
-    transaction_type: TransactionType = Field(
-        sa_column=Column(Enum(TransactionType), nullable=False)
-    )
-    quantity: int
-    unit_cost: Optional[float] = None  # For purchase
-    unit_price: Optional[float] = None  # For sale
-    party_name: Optional[str] = None  # Supplier/Customer
-    transport_other_cost: float = Field(default=0.00)  # Only for purchase
-    reference_number: Optional[str] = None
-    notes: Optional[str] = None
+# --- Purchase Models (supplier intake — replaces Transaction) ---
+#
+# A Purchase is a supplier delivery. It has a header (who, when, ref #) and
+# one or more PurchaseItem lines (which products, how many, at what cost).
+#
+# For serialized products each PurchaseItem spawns ProductUnit rows + a
+# StockMovement per unit. For bulk products a single StockMovement is created.
+# All stock changes flow through PurchaseService → StockService — never direct.
 
-
-class Transaction(TransactionBase, table=True):
+class Purchase(SQLModel, table=True):
     id: UUID = Field(default_factory=uuid4, primary_key=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    created_by: Optional[UUID] = None  # Future: link to User
-    product: Optional[Product] = Relationship(back_populates="transactions")
-
-
-class TransactionCreate(TransactionBase):
-    pass
-
-
-class TransactionUpdate(SQLModel):
-    product_id: Optional[UUID] = None
-    transaction_date: Optional[date] = None
-    transaction_type: Optional[TransactionType] = None
-    quantity: Optional[int] = None
-    unit_cost: Optional[float] = None
-    unit_price: Optional[float] = None
-    party_name: Optional[str] = None
-    transport_other_cost: Optional[float] = None
-    reference_number: Optional[str] = None
+    supplier: str = Field(index=True)
+    reference_number: Optional[str] = Field(default=None, index=True)
+    delivery_date: date = Field(default_factory=date.today)
+    transport_cost: float = Field(default=0.0)
+    total_cost: float = Field(default=0.0)   # computed by service on create
     notes: Optional[str] = None
+    created_by: Optional[UUID] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    items: List["PurchaseItem"] = Relationship(back_populates="purchase")
+
+
+class PurchaseItem(SQLModel, table=True):
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    purchase_id: UUID = Field(foreign_key="purchase.id", index=True)
+    product_id: UUID = Field(foreign_key="product.id", index=True)
+    quantity: int
+    unit_cost: float
+    subtotal: float   # quantity × unit_cost, computed on create
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    purchase: Optional[Purchase] = Relationship(back_populates="items")
+    product: Optional[Product] = Relationship(back_populates="purchase_items")
+
+
+# ── Input / read models ──────────────────────────────────────────────────────
+
+class ProductUnitSpec(SQLModel):
+    """Serialized unit details supplied within a PurchaseItemCreate."""
+    serial_number: str
+    imei: Optional[str] = None
+    color: Optional[str] = None
+    storage: Optional[str] = None
+    condition: str = "New"
+    notes: Optional[str] = None
+
+
+class PurchaseItemCreate(SQLModel):
+    product_id: UUID
+    quantity: int = Field(ge=1)
+    unit_cost: float = Field(ge=0)
+    # Serialized intake: provide exactly `quantity` unit specs.
+    # Omit (or pass empty list) for bulk products.
+    units: List[ProductUnitSpec] = []
+
+
+class PurchaseCreate(SQLModel):
+    supplier: str = Field(min_length=1)
+    reference_number: Optional[str] = None
+    delivery_date: Optional[date] = None
+    transport_cost: float = Field(default=0.0, ge=0)
+    notes: Optional[str] = None
+    items: List[PurchaseItemCreate] = Field(min_length=1)
+
+
+class PurchaseItemRead(SQLModel):
+    id: UUID
+    purchase_id: UUID
+    product_id: UUID
+    quantity: int
+    unit_cost: float
+    subtotal: float
+    created_at: datetime
+    product: Optional[Product] = None
+
+
+class PurchaseRead(SQLModel):
+    id: UUID
+    supplier: str
+    reference_number: Optional[str]
+    delivery_date: date
+    transport_cost: float
+    total_cost: float
+    notes: Optional[str]
+    created_by: Optional[UUID]
+    created_at: datetime
+    items: List[PurchaseItemRead] = []
 
 
 # --- Repair Models ---
@@ -877,12 +922,6 @@ class ReturnUpdate(SQLModel):
 # --- Response Models for Calculated Data ---
 
 
-class TransactionRead(TransactionBase):
-    id: UUID
-    created_at: datetime
-    product: Optional[Product] = None
-
-
 class RepairRead(RepairBase):
     id: UUID
     created_at: datetime
@@ -908,7 +947,7 @@ class DashboardStats(SQLModel):
     total_repairs: int
     pending_repairs: int
     completed_repairs: int
-    total_transactions: int
+    total_purchases: int
     total_expenses: float
     monthly_revenue: float
     monthly_profit: float

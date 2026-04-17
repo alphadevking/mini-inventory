@@ -2,7 +2,6 @@ import { z } from "zod";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export const TransactionTypeSchema = z.enum(["purchase", "sale"]);
 export const RepairStatusSchema = z.enum(["pending", "in_progress", "completed", "cancelled"]);
 export const ReturnActionSchema = z.enum(["refund", "exchange", "repair", "replacement"]);
 export const ReturnStatusSchema = z.enum(["pending", "approved", "rejected", "resolved"]);
@@ -103,35 +102,34 @@ export const ProductUpdateSchema = z.object({
   { message: "Sell price should not be less than purchase cost", path: ["suggested_sell_price"] }
 );
 
-// ─── Transaction Schemas (purchases only going forward) ───────────────────────
+// ─── Purchase Schemas (supplier intake) ──────────────────────────────────────
 
-export const TransactionCreateSchema = z.object({
+export const ProductUnitSpecSchema = z.object({
+  serial_number: z.string().min(1, "Serial number is required"),
+  imei: z.string().optional().nullable(),
+  color: z.string().optional().nullable(),
+  storage: z.string().optional().nullable(),
+  condition: z.string().default("New"),
+  notes: z.string().optional().nullable(),
+});
+
+export const PurchaseItemCreateSchema = z.object({
   product_id: z.string().uuid("Invalid product ID"),
-  transaction_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date (YYYY-MM-DD)"),
-  transaction_type: TransactionTypeSchema,
   quantity: z.number().int().min(1, "Quantity must be at least 1"),
-  unit_cost: z.number().min(0).optional(),
-  unit_price: z.number().min(0).optional(),
-  party_name: z.string().max(200).optional(),
-  transport_other_cost: z.number().min(0).default(0),
-  reference_number: z.string().optional(),
-  notes: z.string().optional(),
+  unit_cost: z.number().min(0, "Unit cost must be non-negative"),
+  units: z.array(ProductUnitSpecSchema).default([]),
 }).refine(
-  (d) => d.transaction_type === "purchase" ? d.unit_cost !== undefined : d.unit_price !== undefined,
-  { message: "Unit cost required for purchases; unit price required for sales", path: ["unit_cost"] }
+  (d) => d.units.length === 0 || d.units.length === d.quantity,
+  { message: "Number of unit specs must equal quantity for serialized products", path: ["units"] }
 );
 
-export const TransactionUpdateSchema = z.object({
-  product_id: z.string().uuid().optional(),
-  transaction_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  transaction_type: TransactionTypeSchema.optional(),
-  quantity: z.number().int().min(1).optional(),
-  unit_cost: z.number().min(0).optional(),
-  unit_price: z.number().min(0).optional(),
-  party_name: z.string().max(200).or(z.literal("")).optional().nullable(),
-  transport_other_cost: z.number().min(0).optional(),
+export const PurchaseCreateSchema = z.object({
+  supplier: z.string().min(1, "Supplier is required").max(200),
   reference_number: z.string().or(z.literal("")).optional().nullable(),
+  delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date (YYYY-MM-DD)").optional(),
+  transport_cost: z.number().min(0).default(0),
   notes: z.string().or(z.literal("")).optional().nullable(),
+  items: z.array(PurchaseItemCreateSchema).min(1, "At least one item is required"),
 });
 
 // ─── Sale Schemas (new first-class entity) ────────────────────────────────────
@@ -273,8 +271,10 @@ export type ProductSubcategoryCreate = z.infer<typeof ProductSubcategoryCreateSc
 export type ProductSubcategoryUpdate = z.infer<typeof ProductSubcategoryUpdateSchema>;
 export type ProductCreate = z.infer<typeof ProductCreateSchema>;
 export type ProductUpdate = z.infer<typeof ProductUpdateSchema>;
-export type TransactionCreate = z.infer<typeof TransactionCreateSchema>;
-export type TransactionUpdate = z.infer<typeof TransactionUpdateSchema>;
+export type ProductUnitSpec = z.infer<typeof ProductUnitSpecSchema>;
+export type PurchaseItemCreate = z.infer<typeof PurchaseItemCreateSchema>;
+export type PurchaseCreate = z.output<typeof PurchaseCreateSchema>;
+export type PurchaseCreateInput = z.input<typeof PurchaseCreateSchema>;
 export type SaleItemInput = z.infer<typeof SaleItemInputSchema>;
 export type SaleCreate = z.infer<typeof SaleCreateSchema>;
 export type RepairCreate = z.infer<typeof RepairCreateSchema>;

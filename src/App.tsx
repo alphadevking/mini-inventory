@@ -288,7 +288,7 @@ const Sales = React.lazy(() => import("./pages/Sales"));
 const Repairs = React.lazy(() => import("./pages/Repairs"));
 const Expenses = React.lazy(() => import("./pages/Expenses"));
 const Returns = React.lazy(() => import("./pages/Returns"));
-const Transactions = React.lazy(() => import("./pages/Transactions"));
+const Purchases = React.lazy(() => import("./pages/Purchases"));
 const Categories = React.lazy(() => import("./pages/Categories"));
 const Subcategories = React.lazy(() => import("./pages/Subcategories"));
 const Analytics = React.lazy(() => import("./pages/Analytics"));
@@ -341,7 +341,7 @@ const router = createBrowserRouter([
     { path: "/repairs", element: <ProtectedRoute allowedRoles={['technician', 'manager', 'admin']}><Layout><ErrorBoundary><Repairs /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
     { path: "/expenses", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Expenses /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
     { path: "/returns", element: <ProtectedRoute allowedRoles={['cashier', 'manager', 'admin']}><Layout><ErrorBoundary><Returns /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
-    { path: "/transactions", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Transactions /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
+    { path: "/purchases", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Purchases /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
     { path: "/categories", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Categories /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
     { path: "/categories/:categoryId/subcategories", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Subcategories /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },
     { path: "/analytics", element: <ProtectedRoute allowedRoles={['manager', 'admin']}><Layout><ErrorBoundary><Analytics /></ErrorBoundary></Layout></ProtectedRoute>, errorElement: <RouteError /> },

@@ -23,8 +23,7 @@ import calendar
 
 from ..models import (
     Product,
-    Transaction,
-    TransactionType,
+    Purchase,
     Repair,
     RepairStatus,
     Expense,
@@ -72,7 +71,7 @@ class AnalyticsService:
         pending_repairs = [r for r in all_repairs if r.repair_status == RepairStatus.pending]
         completed_repairs = [r for r in all_repairs if r.repair_status == RepairStatus.completed]
 
-        all_transactions = session.exec(select(Transaction)).all()
+        all_purchases = session.exec(select(Purchase)).all()
 
         now = datetime.now()
         month_start = date(now.year, now.month, 1)
@@ -98,7 +97,7 @@ class AnalyticsService:
             total_repairs=len(all_repairs),
             pending_repairs=len(pending_repairs),
             completed_repairs=len(completed_repairs),
-            total_transactions=len(all_transactions),
+            total_purchases=len(all_purchases),
             total_expenses=total_expenses,
             monthly_revenue=monthly_revenue,
             monthly_profit=monthly_profit,
@@ -158,13 +157,12 @@ class AnalyticsService:
 
         # --- Purchases / transport costs ---
         purchases = session.exec(
-            select(Transaction).where(
-                Transaction.transaction_type == TransactionType.purchase,
-                Transaction.transaction_date >= start_date,
-                Transaction.transaction_date <= end_date,
+            select(Purchase).where(
+                Purchase.delivery_date >= start_date,
+                Purchase.delivery_date <= end_date,
             )
         ).all()
-        transport_costs = sum(t.transport_other_cost or 0 for t in purchases)
+        transport_costs = sum(p.transport_cost or 0 for p in purchases)
 
         # --- Bottom line ---
         total_revenue = sales_revenue + repair_revenue
