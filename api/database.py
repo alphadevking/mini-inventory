@@ -31,6 +31,18 @@ if _write_url.startswith("sqlite"):
     # SQLite needs special pool settings for single-file access
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
     _engine_kwargs["poolclass"] = StaticPool
+else:
+    _engine_kwargs["pool_pre_ping"] = True
+    _engine_kwargs["pool_recycle"] = 300  # recycle before cloud providers drop idle conns (~5–10 min)
+    _engine_kwargs["pool_size"] = 5
+    _engine_kwargs["max_overflow"] = 10
+    # TCP keepalives so the OS detects dropped SSL connections promptly
+    _engine_kwargs["connect_args"] = {
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
 
 write_engine = create_engine(_write_url, **_engine_kwargs)
 
@@ -45,6 +57,17 @@ else:
     if _read_url.startswith("sqlite"):
         _read_kwargs["connect_args"] = {"check_same_thread": False}
         _read_kwargs["poolclass"] = StaticPool
+    else:
+        _read_kwargs["pool_pre_ping"] = True
+        _read_kwargs["pool_recycle"] = 300
+        _read_kwargs["pool_size"] = 5
+        _read_kwargs["max_overflow"] = 10
+        _read_kwargs["connect_args"] = {
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        }
     read_engine = create_engine(_read_url, **_read_kwargs)
 
 # Backwards-compatible alias used by existing code that imports `engine`

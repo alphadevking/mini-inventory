@@ -6,36 +6,23 @@ import {
   SimpleGrid,
   Stack,
   Container,
-  Table,
-  Badge,
-  Tabs,
-  Progress,
   Paper,
-  Box
+  Progress,
+  Box,
+  Tabs,
 } from "@mantine/core";
 import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, AreaChart, Area,
-  ComposedChart, Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar
+  ComposedChart, Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Line,
 } from 'recharts';
 import { useFetch } from '@/lib/api';
-import {
-  TrendingUp, DollarSign, Package, Activity, BarChart as BarChartIcon, Zap, Target
-} from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { formatCurrency, formatNumber } from '@/lib/utils';
+import { TrendingUp, DollarSign, Package, Activity, BarChart as BarChartIcon, Target } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { PageHeader } from "@/components/PageHeader";
+import { MetricCard } from "@/components/MetricCard";
 import { usePageState } from "@/hooks/usePageState";
-
-interface KPIMetric {
-  name: string;
-  value: number;
-  target: number;
-  unit: string;
-  trend: 'up' | 'down' | 'stable';
-}
 
 interface BusinessIntelligence {
   financial_metrics: {
@@ -84,11 +71,18 @@ interface OperationalEfficiency {
   overall_efficiency_score: number;
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
+const tooltipStyle = {
+  borderRadius: '8px',
+  border: '1px solid var(--echo-border)',
+  backgroundColor: 'var(--echo-surface)',
+  color: 'var(--echo-text)',
+};
+
+const axisTickStyle = { fill: 'var(--echo-text-2)', fontSize: 12 };
+const axisLineStyle = { stroke: 'var(--echo-border)' };
 
 const ERP: React.FC = () => {
-  const { user } = useAuth();
-  const { isRefreshing, dateRange, startDate, endDate, handleRefresh } = usePageState();
+  const { isRefreshing, startDate, endDate, handleRefresh } = usePageState();
 
   const { data: biData, loading: biLoading, error: biError, refetch: refetchBi } = useFetch<BusinessIntelligence>(
     startDate && endDate ? `/api/erp/business-intelligence?start_date=${startDate}&end_date=${endDate}` : null
@@ -103,16 +97,17 @@ const ERP: React.FC = () => {
   if (loading) return <LoadingState message="Loading ERP data..." />;
   if (error) return <ErrorDisplay message="Failed to load ERP data" onRetry={() => handleRefresh(refetchBi, refetchEff)} />;
 
-  const performanceData = biData?.sales_trends?.daily_trends?.slice(-7).map((trend, index) => {
-    const profitMargin = biData?.financial_metrics?.profit_margin || 0;
-    const profitAmount = (trend.revenue * profitMargin) / 100;
-    return {
-      period: `Day ${index + 1}`,
-      revenue: trend.revenue,
-      profit: profitAmount,
-      efficiency: efficiencyData?.overall_efficiency_score || 0
-    };
-  }) || [];
+  const revenueGrowth = biData?.financial_metrics?.revenue_growth ?? 0;
+  const profitMargin  = biData?.financial_metrics?.profit_margin ?? 0;
+  const efficiency    = efficiencyData?.overall_efficiency_score ?? 0;
+  const turnover      = biData?.inventory_metrics?.inventory_turnover ?? 0;
+
+  const performanceData = biData?.sales_trends?.daily_trends?.slice(-7).map((trend, index) => ({
+    period: `Day ${index + 1}`,
+    revenue: trend.revenue,
+    profit: (trend.revenue * profitMargin) / 100,
+    efficiency,
+  })) || [];
 
   return (
     <Container size="xl" py="xl">
@@ -125,77 +120,92 @@ const ERP: React.FC = () => {
       />
 
       <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="lg" mb="xl">
-        <Paper className="block-card" p="md">
-          <Group justify="space-between" mb="xs">
-            <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>Revenue Growth</Text>
-            <TrendingUp size={16} color="black" />
-          </Group>
-          <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{(biData?.financial_metrics?.revenue_growth ?? 0).toFixed(1)}%</Text>
-          <Progress value={Math.min(100, Math.max(0, (biData?.financial_metrics?.revenue_growth ?? 0) + 50))} mt="sm" color="black" size="sm" radius={0} />
-        </Paper>
-        <Paper className="block-card" p="md">
-          <Group justify="space-between" mb="xs">
-            <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>Profit Margin</Text>
-            <TrendingUp size={16} color="black" />
-          </Group>
-          <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{(biData?.financial_metrics?.profit_margin ?? 0).toFixed(1)}%</Text>
-          <Progress value={Math.min(100, Math.max(0, biData?.financial_metrics?.profit_margin ?? 0))} mt="sm" color="black" size="sm" radius={0} />
-        </Paper>
-        <Paper className="block-card" p="md">
-          <Group justify="space-between" mb="xs">
-            <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>Efficiency</Text>
-            <Activity size={16} color="black" />
-          </Group>
-          <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{(efficiencyData?.overall_efficiency_score ?? 0).toFixed(1)}%</Text>
-          <Progress value={Math.min(100, Math.max(0, efficiencyData?.overall_efficiency_score ?? 0))} mt="sm" color="black" size="sm" radius={0} />
-        </Paper>
-        <Paper className="block-card" p="md">
-          <Group justify="space-between" mb="xs">
-            <Text size="xs" color="dimmed" fw={800} style={{ letterSpacing: '1px' }}>Inventory Turnover</Text>
-            <Package size={16} color="black" />
-          </Group>
-          <Text size="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>{(biData?.inventory_metrics?.inventory_turnover ?? 0).toFixed(1)}x</Text>
-          <Progress value={Math.min(100, Math.max(0, (biData?.inventory_metrics?.inventory_turnover ?? 0) * 10))} mt="sm" color="black" size="sm" radius={0} />
-        </Paper>
+        <MetricCard
+          title="Revenue Growth"
+          value={`${revenueGrowth.toFixed(1)}%`}
+          icon={TrendingUp}
+          color="teal"
+          trend={revenueGrowth >= 0 ? 'up' : 'down'}
+          progress={Math.min(100, Math.max(0, revenueGrowth + 50))}
+          description="vs prior period"
+        />
+        <MetricCard
+          title="Profit Margin"
+          value={`${profitMargin.toFixed(1)}%`}
+          icon={DollarSign}
+          color="indigo"
+          trend={profitMargin >= 10 ? 'up' : 'neutral'}
+          progress={Math.min(100, Math.max(0, profitMargin))}
+          description="net of costs"
+        />
+        <MetricCard
+          title="Efficiency Score"
+          value={`${efficiency.toFixed(1)}%`}
+          icon={Activity}
+          color="blue"
+          trend={efficiency >= 70 ? 'up' : 'neutral'}
+          progress={Math.min(100, Math.max(0, efficiency))}
+          description="operational efficiency"
+        />
+        <MetricCard
+          title="Inventory Turnover"
+          value={`${turnover.toFixed(1)}x`}
+          icon={Package}
+          color="orange"
+          trend={turnover >= 4 ? 'up' : 'neutral'}
+          progress={Math.min(100, Math.max(0, turnover * 10))}
+          description="stock cycles"
+        />
       </SimpleGrid>
 
       <Tabs defaultValue="overview">
         <Tabs.List style={{ borderBottom: '1px solid var(--echo-border)' }}>
-          <Tabs.Tab value="overview" leftSection={<Activity size={14} />} fw={700}>Overview</Tabs.Tab>
-          <Tabs.Tab value="performance" leftSection={<BarChartIcon size={14} />} fw={700}>Performance</Tabs.Tab>
-          <Tabs.Tab value="radar" leftSection={<Target size={14} />} fw={700}>Market Radar</Tabs.Tab>
+          <Tabs.Tab value="overview"     leftSection={<Activity size={14} />}     fw={700}>Overview</Tabs.Tab>
+          <Tabs.Tab value="performance"  leftSection={<BarChartIcon size={14} />} fw={700}>Performance</Tabs.Tab>
+          <Tabs.Tab value="radar"        leftSection={<Target size={14} />}       fw={700}>Market Radar</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="overview" pt="lg">
           <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
             <Paper className="block-card" p="lg">
-              <Title order={4} mb="lg" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Revenue vs Profit Analysis</Title>
-              <Box h={350}>
+              <Group mb="lg" gap="sm">
+                <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-accent-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <TrendingUp size={16} color="var(--echo-accent)" />
+                </Box>
+                <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Revenue vs Profit</Title>
+              </Group>
+              <Box h={320}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={performanceData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                    <XAxis dataKey="period" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
-                    <YAxis yAxisId="left" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: 'black', fontSize: 12 }} axisLine={{ stroke: 'black' }} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid var(--echo-border)', backgroundColor: 'var(--echo-surface)', color: 'var(--echo-text)' }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--echo-border)" />
+                    <XAxis dataKey="period" tick={axisTickStyle} axisLine={axisLineStyle} />
+                    <YAxis yAxisId="left"  tick={axisTickStyle} axisLine={axisLineStyle} />
+                    <YAxis yAxisId="right" orientation="right" tick={axisTickStyle} axisLine={axisLineStyle} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number | string) => formatCurrency(Number(v || 0))} />
                     <Legend />
-                    <Bar yAxisId="left" dataKey="revenue" fill="black" name="Revenue" radius={0} />
-                    <Bar yAxisId="left" dataKey="profit" fill="#666" name="Profit" radius={0} />
-                    <Line yAxisId="right" type="step" dataKey="efficiency" stroke="black" strokeWidth={3} name="Efficiency %" dot={{ r: 4, fill: 'white', stroke: 'black', strokeWidth: 2 }} />
+                    <Bar yAxisId="left" dataKey="revenue" fill="var(--accent-blue)"  name="Revenue"    radius={0} />
+                    <Bar yAxisId="left" dataKey="profit"  fill="var(--accent-teal)"  name="Profit"     radius={0} />
+                    <Line yAxisId="right" type="step" dataKey="efficiency" stroke="var(--echo-warning)" strokeWidth={3} name="Efficiency %" dot={{ r: 4, fill: 'var(--echo-warning)', strokeWidth: 2 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </Box>
             </Paper>
+
             <Paper className="block-card" p="lg">
-              <Title order={4} mb="lg" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Category Radar</Title>
-              <Box h={350}>
+              <Group mb="lg" gap="sm">
+                <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-info-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Target size={16} color="var(--echo-info)" />
+                </Box>
+                <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Category Radar</Title>
+              </Group>
+              <Box h={320}>
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={biData?.category_performance?.categories?.slice(0, 5) || []}>
-                    <PolarGrid stroke="#eee" />
-                    <PolarAngleAxis dataKey="name" tick={{ fill: 'black', fontSize: 11 }} />
-                    <PolarRadiusAxis tick={{ fill: 'black', fontSize: 10 }} />
-                    <Radar name="Revenue" dataKey="total_revenue" stroke="black" fill="black" fillOpacity={0.6} />
-                    <Radar name="Units" dataKey="total_quantity" stroke="#666" fill="#666" fillOpacity={0.3} />
+                    <PolarGrid stroke="var(--echo-border)" />
+                    <PolarAngleAxis dataKey="name" tick={{ fill: 'var(--echo-text-2)', fontSize: 11 }} />
+                    <PolarRadiusAxis tick={{ fill: 'var(--echo-text-3)', fontSize: 10 }} />
+                    <Radar name="Revenue" dataKey="total_revenue" stroke="var(--accent-blue)" fill="var(--accent-blue)" fillOpacity={0.5} />
+                    <Radar name="Units"   dataKey="total_quantity" stroke="var(--accent-teal)"  fill="var(--accent-teal)"  fillOpacity={0.3} />
                     <Legend />
                   </RadarChart>
                 </ResponsiveContainer>
@@ -206,24 +216,54 @@ const ERP: React.FC = () => {
 
         <Tabs.Panel value="performance" pt="lg">
           <Paper className="block-card" p="lg">
-            <Title order={4} mb="xl" fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Business Health Indicators</Title>
+            <Group mb="xl" gap="sm">
+              <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-success-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Activity size={16} color="var(--echo-success)" />
+              </Box>
+              <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Business Health Indicators</Title>
+            </Group>
             <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
               <Stack align="center" gap="sm">
-                <Text fw={800} size="xl" color="black">{(biData?.financial_metrics?.profit_margin ?? 0).toFixed(1)}%</Text>
-                <Text size="sm" color="dimmed" fw={700}>Profit Margin</Text>
-                <Progress value={Math.min(100, Math.max(0, biData?.financial_metrics?.profit_margin ?? 0))} w="100%" color="black" size="md" radius={0} />
+                <Text fw={800} size="xl" style={{ color: 'var(--echo-text)' }}>{profitMargin.toFixed(1)}%</Text>
+                <Text size="sm" fw={700} style={{ color: 'var(--echo-text-3)' }}>Profit Margin</Text>
+                <Progress value={Math.min(100, Math.max(0, profitMargin))} w="100%" color="indigo" size="md" />
               </Stack>
               <Stack align="center" gap="sm">
-                <Text fw={800} size="xl" color="black">{(efficiencyData?.overall_efficiency_score ?? 0).toFixed(1)}%</Text>
-                <Text size="sm" color="dimmed" fw={700}>Efficiency Score</Text>
-                <Progress value={Math.min(100, Math.max(0, efficiencyData?.overall_efficiency_score ?? 0))} w="100%" color="black" size="md" radius={0} />
+                <Text fw={800} size="xl" style={{ color: 'var(--echo-text)' }}>{efficiency.toFixed(1)}%</Text>
+                <Text size="sm" fw={700} style={{ color: 'var(--echo-text-3)' }}>Efficiency Score</Text>
+                <Progress value={Math.min(100, Math.max(0, efficiency))} w="100%" color="blue" size="md" />
               </Stack>
               <Stack align="center" gap="sm">
-                <Text fw={800} size="xl" color="black">{(biData?.financial_metrics?.revenue_growth ?? 0).toFixed(1)}%</Text>
-                <Text size="sm" color="dimmed" fw={700}>Revenue Growth</Text>
-                <Progress value={Math.min(100, Math.max(0, (biData?.financial_metrics?.revenue_growth ?? 0) + 50))} w="100%" color="black" size="md" radius={0} />
+                <Text fw={800} size="xl" style={{ color: 'var(--echo-text)' }}>{revenueGrowth.toFixed(1)}%</Text>
+                <Text size="sm" fw={700} style={{ color: 'var(--echo-text-3)' }}>Revenue Growth</Text>
+                <Progress value={Math.min(100, Math.max(0, revenueGrowth + 50))} w="100%" color="teal" size="md" />
               </Stack>
             </SimpleGrid>
+          </Paper>
+        </Tabs.Panel>
+
+        <Tabs.Panel value="radar" pt="lg">
+          <Paper className="block-card" p="lg">
+            <Group mb="lg" gap="sm">
+              <Box style={{ width: 32, height: 32, borderRadius: 'var(--echo-radius-sm)', backgroundColor: 'rgba(var(--echo-info-rgb), 0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Target size={16} color="var(--echo-info)" />
+              </Box>
+              <Title order={4} fw={800} style={{ fontFamily: "'Manrope', sans-serif" }}>Market Radar</Title>
+            </Group>
+            <Box h={400}>
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={biData?.category_performance?.categories || []}>
+                  <PolarGrid stroke="var(--echo-border)" />
+                  <PolarAngleAxis dataKey="name" tick={{ fill: 'var(--echo-text-2)', fontSize: 11 }} />
+                  <PolarRadiusAxis tick={{ fill: 'var(--echo-text-3)', fontSize: 10 }} />
+                  <Radar name="Revenue"      dataKey="total_revenue"      stroke="var(--accent-blue)"  fill="var(--accent-blue)"  fillOpacity={0.5} />
+                  <Radar name="Transactions" dataKey="total_transactions" stroke="var(--accent-teal)"  fill="var(--accent-teal)"  fillOpacity={0.3} />
+                  <Radar name="Avg Price"    dataKey="avg_price"          stroke="var(--echo-warning)" fill="var(--echo-warning)" fillOpacity={0.2} />
+                  <Legend />
+                  <Tooltip contentStyle={tooltipStyle} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </Box>
           </Paper>
         </Tabs.Panel>
       </Tabs>
